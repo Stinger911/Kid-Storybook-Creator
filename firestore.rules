@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn();
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Reference to incoming data
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Reference to existing data
+    function existing() {
+      return resource.data;
+    }
+
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'stinger911@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'admin')
+      );
+    }
+
+    // Allow connection test
+    match /system_configs/{configId} {
+      allow read: if true;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.get('uid', '') is string && data.get('uid', '').size() <= 128
+          && data.get('email', '') is string && data.get('email', '').size() <= 256
+          && data.get('displayName', '') is string && data.get('displayName', '').size() <= 256
+          && data.get('role', 'user') is string && (data.get('role', 'user') == 'user' || data.get('role', 'user') == 'admin')
+          && data.get('subscriptionStatus', 'free') is string && (data.get('subscriptionStatus', 'free') == 'free' || data.get('subscriptionStatus', 'free') == 'premium');
+      }
+
+      allow get: if isOwner(userId) || (isVerifiedUser() && !isOwner(userId) && isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(incoming()) 
+        && incoming().get('uid', '') == request.auth.uid 
+        && (incoming().get('role', 'user') == 'user' || (request.auth.token.email == 'stinger911@gmail.com' && incoming().get('role', 'user') == 'admin')) 
+        && incoming().get('createdAt', request.time) == request.time;
+      
+      allow update: if isOwner(userId) && isValidUser(incoming())
+        && incoming().get('uid', '') == existing().get('uid', '')
+        && incoming().get('createdAt', request.time) == existing().get('createdAt', request.time)
+        && (incoming().get('role', 'user') == existing().get('role', 'user') || isAdmin());
+      
+      allow delete: if isAdmin();
+    }
+
+    // Books Collection
+    match /books/{bookId} {
+      function isValidBook(data) {
+        return data.get('id', '') is string && data.get('id', '').size() <= 128
+          && data.get('userId', '') is string && data.get('userId', '').size() <= 128
+          && data.get('title', '') is string && data.get('title', '').size() <= 256
+          && data.get('author', '') is string && data.get('author', '').size() <= 256
+          && data.get('themeColor', '') is string && data.get('themeColor', '').size() <= 128
+          && data.get('isPublic', false) is bool
+          && data.get('moderationStatus', 'pending') is string && (data.get('moderationStatus', 'pending') == 'approved' || data.get('moderationStatus', 'pending') == 'pending' || data.get('moderationStatus', 'pending') == 'rejected');
+      }
+
+      allow get: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || (existing().get('isPublic', false) == true && existing().get('moderationStatus', 'pending') == 'approved') || isAdmin());
+      allow list: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || (existing().get('isPublic', false) == true && existing().get('moderationStatus', 'pending') == 'approved') || isAdmin());
+
+      allow create: if isVerifiedUser() && isValidBook(incoming()) 
+        && incoming().get('userId', '') == request.auth.uid 
+        && (incoming().get('moderationStatus', 'pending') == 'approved' || incoming().get('moderationStatus', 'pending') == 'pending')
+        && incoming().get('createdAt', request.time) == request.time;
+
+      allow update: if isVerifiedUser() && isValidBook(incoming())
+        && incoming().get('id', '') == existing().get('id', '')
+        && incoming().get('userId', '') == existing().get('userId', '')
+        && incoming().get('createdAt', request.time) == existing().get('createdAt', request.time)
+        && (
+          (
+            existing().get('userId', '') == request.auth.uid 
+            && (incoming().get('moderationStatus', 'pending') == existing().get('moderationStatus', 'pending') || incoming().get('moderationStatus', 'pending') == 'pending')
+          )
+          || isAdmin()
+        );
+
+      allow delete: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || isAdmin());
+    }
+  }
+}

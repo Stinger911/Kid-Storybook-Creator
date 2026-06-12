@@ -1,0 +1,93 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&family=Playpen+Sans:wght@300;400;600&family=Playwrite+GB+J:ital,wght@1,100..400&family=Short+Stack&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-handwriting: "Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive, sans-serif;
+
+  /* Natural Tones Color Palette Mapping */
+  --color-stone-50: #FDFCF0;   /* Natural warm ivory canvas background */
+  --color-stone-100: #F5F2E8;  /* Sand color highlight/aside */
+  --color-stone-200: #E6E2D3;  /* Soft sand borders */
+  --color-stone-300: #CEC9B8;  /* Khaki tone boundaries */
+  --color-stone-400: #9A9483;  /* Soft organic warm gray tone */
+  --color-stone-500: #7A7463;  /* Darker gray wood accent */
+  --color-stone-600: #5A5A40;  /* Olive-tinged dark gray text */
+  --color-stone-700: #4A443F;  /* Deep warm mud-charcoal main text */
+  --color-stone-800: #3E3833;  /* Dark slate soil */
+  --color-stone-900: #2C2723;  /* Organic absolute dark bark */
+
+  --color-amber-50: #F3F1E7;   /* Pale warm ivory tint */
+  --color-amber-100: #D4E3CC;  /* Moss green background badge */
+  --color-amber-200: #C2D5BA;  /* Soft sage secondary */
+  --color-amber-300: #A8C49E;  /* Sage medium accent */
+  --color-amber-400: #9ABA90;  /* Active sage green */
+  --color-amber-500: #8BA888;  /* Premium Sage Green main theme accent */
+  --color-amber-600: #7A9777;  /* Hover sage green shadow */
+  --color-amber-700: #658062;  /* Deep pine forest accent */
+  --color-amber-800: #5A5A40;  /* Traditional Forest Olive highlight text */
+  --color-amber-900: #465444;  /* Deepest moss green */
+
+  --color-indigo-50: #FAF7F2;  /* Gentle peach sunset white */
+  --color-indigo-100: #F1DCC7; /* Faded peach sand */
+  --color-indigo-200: #ECC4A8; /* Light warm clay */
+  --color-indigo-300: #E8B490; /* Amber terracotta */
+  --color-indigo-400: #E8A87C; /* Terracotta Peach secondary accent */
+  --color-indigo-500: #E8A87C; /* Terracotta primary key highlight */
+  --color-indigo-600: #D6966A; /* Deep warm clay rust on hover */
+  --color-indigo-700: #C18359; /* Sunbaked soil accent */
+  --color-indigo-800: #9B623D; /* Earthy brick */
+  --color-indigo-900: #7B4B2D; /* Bark red */
+
+  --color-sky-100: #F5F2E8;    /* Replace sky accents with sandy tones */
+  --color-violet-100: #EBE8DD; /* Clay sand highlighted background badge */
+  --color-rose-100: #FDFCF0;   /* Ivory background element shading */
+  --color-rose-400: #E8A87C;   /* Terracotta soft flower blush */
+}
+
+@layer utilities {
+  /* Hide background elements for physical paper output printing */
+  @media print {
+    @page {
+      size: portrait;
+      margin: 6mm 4mm; /* clean margin for printer feed */
+    }
+
+    /* Reset all parent container dimensions, margins, and paddings for clean printer output */
+    html, body, #root, #app-root, main, #book-studio {
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      max-width: none !important;
+      width: 100% !important;
+      height: auto !important;
+      min-height: 0 !important;
+      box-shadow: none !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    
+    .print\:hidden {
+      display: none !important;
+    }
+    
+    .print\:block {
+      display: block !important;
+    }
+
+    .page-break-after-always {
+      page-break-after: always !important;
+      break-after: page !important;
+    }
+  }
+
+  .school-tracing-font {
+    font-family: "Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive, sans-serif !important;
+    font-style: italic !important;
+  }
+}
+

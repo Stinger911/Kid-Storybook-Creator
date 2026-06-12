@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Information about registered users, including subscription tier and system roles",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique user ID from Firebase Auth"
+        },
+        "email": {
+          "type": "string",
+          "description": "Confirmed email address of user"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User profile name"
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["free", "premium"],
+          "description": "Subscription level of user"
+        },
+        "subscriptionExpiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of subscription expiry"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "Role determining access to admin console"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Format for creation date tracking"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Format for modification tracking"
+        }
+      },
+      "required": ["uid", "email", "subscriptionStatus", "role"]
+    },
+    "Book": {
+      "title": "Kid Storybook",
+      "description": "Cloud-synced customizable storybook with pages, line sketches and handwriting grids",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique book identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner userId who created this book"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the storybook"
+        },
+        "author": {
+          "type": "string",
+          "description": "Parent and child signature credentials"
+        },
+        "themeColor": {
+          "type": "string",
+          "description": "The theme color background index"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this book was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this book was last saved"
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Available in the community library"
+        },
+        "moderationStatus": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "Library submission status reviewed by admins"
+        },
+        "pages": {
+          "type": "array",
+          "description": "Sequential array of story and coloring activity sheets"
+        }
+      },
+      "required": ["id", "userId", "title"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Personal profiles and billing accounts of kids and parents"
+    },
+    "/books/{bookId}": {
+      "schema": "Book",
+      "description": "Author books linked to creators, with public library capabilities"
+    }
+  }
+}

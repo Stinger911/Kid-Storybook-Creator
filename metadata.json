@@ -1,0 +1,6 @@
+{
+  "name": "Kid Storybook Creator",
+  "description": "Interactive workspace for parents and kids to collaborate on storybooks, convert personal photos to custom line-art coloring pages, and generate handwriting tracing worksheets for alphabet and word learning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
