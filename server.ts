@@ -18,6 +18,9 @@ app.use(
   createProxyMiddleware({
     target: "https://lab18-net.firebaseapp.com",
     changeOrigin: true,
+    pathRewrite: (path, req) => {
+      return "/__/auth" + path;
+    }
   })
 );
 
