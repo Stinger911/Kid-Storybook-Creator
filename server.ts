@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 dotenv.config();
 
@@ -10,6 +11,15 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
+
+// Reverse proxy Firebase Authentication requests to bypass CORS and third-party cookie blocks on custom domains
+app.use(
+  "/__/auth",
+  createProxyMiddleware({
+    target: "https://lab18-net.firebaseapp.com",
+    changeOrigin: true,
+  })
+);
 
 // Lazy initializer for Google Gen AI to prevent startup crash if API key is missing
 let aiClient: GoogleGenAI | null = null;

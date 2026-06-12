@@ -3,8 +3,16 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
+// Dynamically configure authDomain to point to the production custom domain to avoid CORS/third-party cookie issues
+const dynamicFirebaseConfig = {
+  ...firebaseConfig,
+  authDomain: (typeof window !== 'undefined' && window.location.hostname === 'storycraft.lab18.net')
+    ? 'storycraft.lab18.net'
+    : firebaseConfig.authDomain
+};
+
 // Initialize Firebase App
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(dynamicFirebaseConfig);
 
 // Initialize Services
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL */
