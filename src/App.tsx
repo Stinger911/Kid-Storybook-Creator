@@ -8,8 +8,9 @@ import {
   Smile, Sparkles, BookOpen, LogIn, LogOut, ShieldCheck, 
   CreditCard, Lock, Globe, Database, HelpCircle, Flame, Users, 
   BookMarked, Star, CheckCircle, ArrowRight, ShieldAlert, Check,
-  Activity, Award, Search, Trash2, CheckCircle2, XCircle
+  Activity, Award, Search, Trash2, CheckCircle2, XCircle, Menu, X
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 function WorkshopApp() {
   const { 
@@ -38,6 +39,7 @@ function WorkshopApp() {
 
   const [selectedBook, setSelectedBook] = useState<KidBook | null>(null);
   const [activeView, setActiveView] = useState<'shelf' | 'admin'>('shelf');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Checkout Simulator Keystroke States for CRO High Conversion Mockup
   const [ccNumber, setCcNumber] = useState('');
@@ -102,8 +104,8 @@ function WorkshopApp() {
     <div className="min-h-screen bg-stone-50/70 text-stone-800 font-sans flex flex-col justify-between" id="app-root">
       
       {/* Dynamic playrooms header */}
-      <header className="print:hidden w-full border-b border-stone-200/80 bg-white/60 backdrop-blur-md sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <header className="print:hidden sticky top-0 z-30 w-full transition-all duration-300 bg-transparent px-3 py-2 sm:px-0 sm:py-0">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between bg-white/90 sm:bg-white/60 backdrop-blur-md rounded-2xl sm:rounded-none border border-stone-200/85 sm:border-t-0 sm:border-x-0 sm:border-b shadow-lg sm:shadow-xs">
           {/* Studio Brand Identity */}
           <Tooltip 
             title="StoryCraft Studio 🎨" 
@@ -117,26 +119,27 @@ function WorkshopApp() {
                 handleBackToLibrary();
               }}
             >
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-400 flex items-center justify-center text-white shadow shadow-amber-200">
-                <Sparkles className="w-5 h-5 animate-pulse" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-400 flex items-center justify-center text-white shadow shadow-amber-200 shrink-0">
+                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
               </div>
-              <div>
-                <h1 className="font-sans font-black tracking-tight text-base sm:text-lg flex items-center gap-1.5 text-stone-900">
-                  <span>StoryCraft Cloud</span>
+              <div className="min-w-0">
+                <h1 className="font-sans font-black tracking-tight text-sm sm:text-lg flex items-center gap-1.5 text-stone-900 leading-tight">
+                  <span className="truncate">StoryCraft Cloud</span>
                   {user?.subscriptionStatus === 'premium' ? (
-                    <span className="bg-amber-100 text-amber-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-0.5">
-                      <Star className="w-3 h-3 fill-amber-500 text-amber-500" /> Premium
+                    <span className="bg-amber-100 text-amber-700 text-[9px] sm:text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-0.5">
+                      <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" /> Premium
                     </span>
                   ) : (
-                    <span className="text-xs font-serif italic text-amber-600 font-bold hidden sm:inline">active workspace</span>
+                    <span className="text-[11px] font-serif italic text-amber-600 font-bold hidden sm:inline">active workspace</span>
                   )}
                 </h1>
-                <p className="text-[10px] text-stone-400 font-mono font-bold tracking-wide text-left uppercase">Multi-Device Family Co-authoring</p>
+                <p className="text-[9px] sm:text-[10px] text-stone-400 font-mono font-bold tracking-wide text-left uppercase truncate">Multi-Device Family Co-authoring</p>
               </div>
             </div>
           </Tooltip>
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          {/* Desktop Navigation Items */}
+          <div className="hidden sm:flex items-center gap-2 sm:gap-4">
             
             {/* Database mode ribbon */}
             <Tooltip
@@ -271,7 +274,180 @@ function WorkshopApp() {
               </Tooltip>
             )}
           </div>
+
+          {/* Mobile menu and Quick Auth toggles */}
+          <div className="flex sm:hidden items-center gap-2">
+            {!loading && (
+              user ? (
+                /* Icon-only mobile avatar profile button */
+                <button
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="w-8 h-8 rounded-full bg-amber-400 text-stone-800 flex items-center justify-center font-black text-xs uppercase overflow-hidden ring-2 ring-amber-100 shadow-sm hover:scale-105 active:scale-95 transition cursor-pointer shrink-0"
+                  aria-label="User profile details"
+                  title="User profile details"
+                >
+                  {user.photoURL ? (
+                    <img 
+                      src={user.photoURL} 
+                      alt={user.displayName} 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    user.displayName.charAt(0)
+                  )}
+                </button>
+              ) : (
+                /* Icon-only Log In button */
+                <button
+                  onClick={loginWithGoogle}
+                  className="p-2 text-white bg-stone-900 hover:bg-stone-800 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-sm border border-stone-800"
+                  aria-label="Log In"
+                  title="Log In"
+                >
+                  <LogIn className="w-4 h-4 text-amber-400" />
+                </button>
+              )
+            )}
+
+            {/* Menu toggle button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 text-stone-600 hover:text-stone-900 rounded-xl bg-stone-100/80 hover:bg-stone-200/50 border border-stone-200/65 transition cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
+              aria-label="Toggle mobile menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile dropdown menu content using motion */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, scale: 0.95 }}
+              animate={{ opacity: 1, height: "auto", scale: 1 }}
+              exit={{ opacity: 0, height: 0, scale: 0.95 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+              className="sm:hidden mt-2 mx-3 overflow-hidden bg-white/95 backdrop-blur-md border border-stone-200/85 rounded-2xl shadow-xl flex flex-col p-4 gap-3 text-left absolute left-0 right-0 z-40"
+            >
+              {/* Database Status inside Mobile Menu */}
+              <div className="flex items-center justify-between p-2.5 px-3 bg-stone-50 border border-stone-200/50 rounded-xl text-xs">
+                <span className="text-stone-500 font-bold uppercase tracking-wider text-[10px]">Database Mode</span>
+                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
+                  {libraryMode === 'cloud' ? (
+                    <>
+                      <Database className="w-3.5 h-3.5 text-blue-500 animate-bounce" />
+                      <span className="text-blue-800">Cloud Connected</span>
+                    </>
+                  ) : (
+                    <>
+                      <Database className="w-3.5 h-3.5 text-stone-400" />
+                      <span className="text-stone-500">Local Only</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Admin Panel Toggle link on mobile */}
+              {user?.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setActiveView(activeView === 'shelf' ? 'admin' : 'shelf');
+                    setSelectedBook(null);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full px-4 py-2.5 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer border ${
+                    activeView === 'admin' 
+                      ? 'bg-purple-100 border-purple-200 text-purple-900' 
+                      : 'bg-white hover:bg-stone-50 border-stone-200 text-purple-700'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Admin Panel</span>
+                </button>
+              )}
+
+              {/* Back to library navigation button */}
+              {selectedBook && (
+                <button
+                  onClick={() => {
+                    handleBackToLibrary();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <BookOpen className="w-4 h-4 text-stone-500" />
+                  <span>My Bookshelf</span>
+                </button>
+              )}
+
+              {/* Conversion premium button */}
+              {user?.subscriptionStatus !== 'premium' && (
+                <button
+                  onClick={() => {
+                    setShowPremiumModal(true);
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-400 hover:from-amber-600 hover:to-rose-500 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Flame className="w-4 h-4 text-yellow-300 animate-pulse" />
+                  <span>Go VIP</span>
+                </button>
+              )}
+
+              {/* Authed Profile section or Login */}
+              {loading ? (
+                <div className="w-full h-11 rounded-xl bg-stone-100 animate-pulse border border-stone-205" />
+              ) : user ? (
+                <div className="flex items-center justify-between bg-stone-50 border border-stone-200/50 p-2 px-3 rounded-xl">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 bg-amber-400 text-stone-800 rounded-full flex items-center justify-center font-black text-xs uppercase overflow-hidden ring-2 ring-white select-none shrink-0">
+                      {user.photoURL ? (
+                        <img 
+                          src={user.photoURL} 
+                          alt={user.displayName} 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        user.displayName.charAt(0)
+                      )}
+                    </div>
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="text-xs font-black text-stone-800 truncate">
+                        {user.displayName}
+                      </span>
+                      <span className="text-[10px] text-stone-400 truncate max-w-[150px] font-mono leading-none mt-0.5">
+                        {user.email}
+                      </span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      logout();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="px-3 py-1.5 text-xs text-rose-600 hover:text-white hover:bg-rose-500 font-bold border border-rose-100/80 hover:border-transparent rounded-xl transition shrink-0 cursor-pointer"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    loginWithGoogle();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full px-4 py-2.5 bg-stone-900 text-white font-bold text-xs rounded-xl hover:bg-stone-800 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
+                >
+                  <LogIn className="w-4 h-4 text-amber-400" />
+                  <span>Log In</span>
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       {/* Main Core View Area wrapper */}
