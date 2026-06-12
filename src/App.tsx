@@ -240,7 +240,7 @@ function WorkshopApp() {
               </Tooltip>
             ) : (
               <Tooltip
-                title="Sync Account ☁️"
+                title="Log In ☁️"
                 content="Log in securely with Google to enable real-time cloud auto-saves, download templates anywhere, and sync files with your family."
                 position="bottom-right"
               >
@@ -249,7 +249,7 @@ function WorkshopApp() {
                   className="px-4 py-1.5 bg-stone-900 text-white font-bold text-xs rounded-xl hover:bg-stone-800 transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
                 >
                   <LogIn className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Sync Account</span>
+                  <span>Log In</span>
                 </button>
               </Tooltip>
             )}
