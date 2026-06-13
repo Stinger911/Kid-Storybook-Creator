@@ -49,6 +49,89 @@ function WorkshopApp() {
   const [isPaying, setIsPaying] = useState(false);
   const [paySuccess, setPaySuccess] = useState(false);
 
+  // Stripe & Subscription Integration State (CRO & Pro Billing)
+  const [stripeStatus, setStripeStatus] = useState<{ available: boolean; priceId: string } | null>(null);
+  const [isStripeRedirecting, setIsStripeRedirecting] = useState(false);
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState<string | null>(null);
+  const [activePaymentTab, setActivePaymentTab] = useState<'stripe' | 'sandbox'>('stripe');
+
+  // Check stripe configuration status and check query params for checkout returns
+  useEffect(() => {
+    // 1. Fetch stripe status
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch("/api/stripe/status");
+        if (res.ok) {
+          const data = await res.json();
+          setStripeStatus(data);
+          // Set active view based on availability
+          if (data.available) {
+            setActivePaymentTab('stripe');
+          } else {
+            setActivePaymentTab('sandbox');
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to retrieve Stripe configuration status:", e);
+      }
+    };
+    fetchStatus();
+
+    // 2. Read query params
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get("checkout_status");
+    if (checkoutStatus) {
+      if (checkoutStatus === "success") {
+        setPaySuccess(true);
+        setShowPremiumModal(true);
+        setPaymentStatusMessage("🎉 Awesome! Your VIP premium subscription is now fully active.");
+      } else if (checkoutStatus === "cancel") {
+        setPaymentStatusMessage("⚠️ Checkout cancelled. No charges were made.");
+      }
+
+      // Cleanup query parameters from the browser address bar to keep things tidy
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }, []);
+
+  // Handler for secure Stripe Checkout Session redirection
+  const handleStripeCheckout = async () => {
+    if (!user) return;
+    setIsStripeRedirecting(true);
+    setPaymentStatusMessage(null);
+
+    try {
+      const returnUrl = window.location.origin;
+      const res = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          returnUrl: returnUrl
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      if (data.url) {
+        // Redirect to stripe checkout or local sandbox checkout flow
+        window.location.href = data.url;
+      } else {
+        throw new Error("Invalid response received from subscription router");
+      }
+    } catch (err: any) {
+      console.error("Subscription Checkout error:", err);
+      setPaymentStatusMessage(`❌ Checkout Failed: ${err.message || String(err)}`);
+    } finally {
+      setIsStripeRedirecting(false);
+    }
+  };
+
   // Sync holder name with user upon auth change
   useEffect(() => {
     if (user) {
@@ -877,6 +960,16 @@ function WorkshopApp() {
 
               {/* Payment inputs Form */}
               <div className="flex flex-col gap-3 text-left">
+                {paymentStatusMessage && (
+                  <div className={`p-3.5 rounded-2xl text-xs font-semibold select-text border shrink-0 ${
+                    paymentStatusMessage.includes("🎉") 
+                      ? "bg-emerald-50 text-emerald-850 border-emerald-200" 
+                      : "bg-amber-50 text-amber-850 border-amber-200"
+                  }`}>
+                    {paymentStatusMessage}
+                  </div>
+                )}
+
                 {!user ? (
                   <div className="bg-amber-50 border border-amber-200 text-amber-805 p-4 rounded-2xl flex flex-col gap-3 text-center items-center">
                     <Lock className="w-8 h-8 text-amber-500" />
@@ -893,7 +986,7 @@ function WorkshopApp() {
                     </button>
                   </div>
                 ) : paySuccess ? (
-                  <div className="bg-emerald-50 text-emerald-950 px-4 py-8 rounded-2xl border border-emerald-200 text-center flex flex-col items-center justify-center gap-3">
+                  <div className="bg-emerald-50 text-emerald-950 px-4 py-8 rounded-2xl border border-emerald-200 text-center flex flex-col items-center justify-center gap-3 animate-fadeIn">
                     <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow shadow-emerald-200">
                       <Check className="w-6 h-6 stroke-[3px]" />
                     </div>
@@ -903,91 +996,180 @@ function WorkshopApp() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3.5">
-                    {/* Expiry and CVV Row */}
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-bold text-stone-500 uppercase">Card Number</label>
-                      <input
-                        type="text"
-                        maxLength={16}
-                        placeholder="4532 7182 9912 3424"
-                        value={ccNumber}
-                        onChange={e => setCcNumber(e.target.value.replace(/\D/g, ''))}
-                        className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-bold text-stone-500 uppercase">Cardholder Name</label>
-                      <input
-                        type="text"
-                        placeholder="John Doe"
-                        value={ccHolder}
-                        onChange={e => setCcHolder(e.target.value)}
-                        className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400 uppercase"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-bold text-stone-500 uppercase">Expiry Date</label>
-                        <input
-                          type="text"
-                          placeholder="MM/YY"
-                          maxLength={5}
-                          value={ccExpiry}
-                          onChange={e => setCcExpiry(e.target.value)}
-                          className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
-                        />
+                  <div className="flex flex-col gap-3">
+                    {/* Tab Navigation if Stripe is available */}
+                    {stripeStatus?.available && (
+                      <div className="flex bg-stone-100 p-1 rounded-xl mb-1 text-xs font-bold border border-stone-200/60 shadow-inner">
+                        <button
+                          type="button"
+                          onClick={() => { setActivePaymentTab('stripe'); setPaymentStatusMessage(null); }}
+                          className={`flex-1 py-1.5 rounded-lg text-center transition cursor-pointer select-none ${
+                            activePaymentTab === 'stripe' 
+                              ? 'bg-white text-stone-900 shadow-sm' 
+                              : 'text-stone-500 hover:text-stone-800'
+                          }`}
+                        >
+                          💳 Stripe Checkout
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setActivePaymentTab('sandbox'); setPaymentStatusMessage(null); }}
+                          className={`flex-1 py-1.5 rounded-lg text-center transition cursor-pointer select-none ${
+                            activePaymentTab === 'sandbox' 
+                              ? 'bg-white text-stone-900 shadow-sm' 
+                              : 'text-stone-500 hover:text-stone-800'
+                          }`}
+                        >
+                          🧪 Dev Sandbox
+                        </button>
                       </div>
+                    )}
 
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-bold text-stone-500 uppercase">CVV Code</label>
-                        <input
-                          type="text"
-                          placeholder="321"
-                          maxLength={3}
-                          value={ccCvv}
-                          onChange={e => setCcCvv(e.target.value.replace(/\D/g, ''))}
-                          className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
-                        />
+                    {/* STRIPE VIEW */}
+                    {stripeStatus?.available && activePaymentTab === 'stripe' ? (
+                      <div className="flex flex-col gap-3.5 bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs animate-fadeIn">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-bold text-sm text-stone-800">VIP Pro Plan Subscription</h4>
+                            <p className="text-[10px] text-stone-500 mt-0.5">Recurring monthly access. Cancel anytime from your profile.</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-lg font-black text-amber-700 font-mono">$9.99</span>
+                            <span className="text-[10px] text-stone-400 font-bold block">/ month</span>
+                          </div>
+                        </div>
+
+                        <ul className="text-[10px] space-y-1.5 text-stone-600 font-medium border-t border-stone-100 pt-3">
+                          <li className="flex items-center gap-1.5">
+                            <span className="text-emerald-500 font-bold">✓</span> Secure secure Stripe customer portal
+                          </li>
+                          <li className="flex items-center gap-1.5">
+                            <span className="text-emerald-500 font-bold">✓</span> Instant cloud synchronization unlock
+                          </li>
+                          <li className="flex items-center gap-1.5">
+                            <span className="text-emerald-500 font-bold">✓</span> Automatic recurring renewal periods
+                          </li>
+                        </ul>
+
+                        <button
+                          onClick={handleStripeCheckout}
+                          disabled={isStripeRedirecting}
+                          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition mt-1 cursor-pointer flex items-center justify-center gap-2 transform active:scale-95 shadow disabled:opacity-50"
+                        >
+                          {isStripeRedirecting ? (
+                            <>
+                              <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                              <span>Redirecting to Checkout...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>🔒 Subscribe via Stripe ($9.99/mo)</span>
+                            </>
+                          )}
+                        </button>
                       </div>
-                    </div>
+                    ) : (
+                      /* SANDBOX VIEW */
+                      <div className="flex flex-col gap-3 animate-fadeIn">
+                        {!stripeStatus?.available && (
+                          <div className="bg-amber-50 text-amber-800 border border-amber-200/60 p-3 rounded-2xl text-[10px] font-semibold leading-relaxed">
+                            💡 <strong>Sandbox Simulation Mode:</strong> Real Stripe credentials are not specified in the workspace yet. Upgrading below uses a sandbox mockup card to upgrade immediately:
+                          </div>
+                        )}
 
-                    {/* Submit Pay simulated button */}
-                    <button
-                      onClick={async () => {
-                        if (!ccNumber.trim() || !ccHolder.trim() || !ccExpiry.trim() || !ccCvv.trim()) {
-                          alert("Please fill in simulated credit card inputs to proceed!");
-                          return;
-                        }
-                        setIsPaying(true);
-                        // Simulate network handshakes
-                        setTimeout(async () => {
-                          await simulateUpgrade();
-                          setIsPaying(false);
-                          setCcNumber('');
-                          setCcExpiry('');
-                          setCcCvv('');
-                        }, 2200);
-                      }}
-                      disabled={isPaying}
-                      className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white font-bold text-sm rounded-xl transition mt-1 cursor-pointer flex items-center justify-center gap-2 transform active:scale-95 shadow-md shadow-stone-800/10 disabled:opacity-50"
-                    >
-                      {isPaying ? (
-                        <>
-                          <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                          <span>Simulating Visa authorization...</span>
-                        </>
-                      ) : (
-                        <span>Simulate Secure Purchase ($8.99/mo)</span>
-                      )}
-                    </button>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-bold text-stone-500 uppercase">Card Number</label>
+                          <input
+                            type="text"
+                            maxLength={16}
+                            placeholder="4532 7182 9912 3424"
+                            value={ccNumber}
+                            onChange={e => setCcNumber(e.target.value.replace(/\D/g, ''))}
+                            className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-bold text-stone-500 uppercase">Cardholder Name</label>
+                          <input
+                            type="text"
+                            placeholder="John Doe"
+                            value={ccHolder}
+                            onChange={e => setCcHolder(e.target.value)}
+                            className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400 uppercase"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-stone-500 uppercase">Expiry Date</label>
+                            <input
+                              type="text"
+                              placeholder="MM/YY"
+                              maxLength={5}
+                              value={ccExpiry}
+                              onChange={e => setCcExpiry(e.target.value)}
+                              className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-stone-500 uppercase">CVV Code</label>
+                            <input
+                              type="text"
+                              placeholder="321"
+                              maxLength={3}
+                              value={ccCvv}
+                              onChange={e => setCcCvv(e.target.value.replace(/\D/g, ''))}
+                              className="w-full bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-400"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Submit Pay simulated button */}
+                        <button
+                          onClick={async () => {
+                            if (!ccNumber.trim() || !ccHolder.trim() || !ccExpiry.trim() || !ccCvv.trim()) {
+                              alert("Please fill in simulated credit card inputs to proceed!");
+                              return;
+                            }
+                            setIsPaying(true);
+                            setPaymentStatusMessage(null);
+                            // Simulate network handshakes
+                            setTimeout(async () => {
+                              try {
+                                await simulateUpgrade();
+                                setIsPaying(false);
+                                setCcNumber('');
+                                setCcExpiry('');
+                                setCcCvv('');
+                                setPaySuccess(true);
+                                setPaymentStatusMessage("🎉 Sandbox upgrade successful! Your Cloud Storage is unlocked.");
+                              } catch (e: any) {
+                                setIsPaying(false);
+                                setPaymentStatusMessage(`❌ Sandbox Upgrade Failed: ${e.message || String(e)}`);
+                              }
+                            }, 2200);
+                          }}
+                          disabled={isPaying}
+                          className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white font-bold text-sm rounded-xl transition mt-1 cursor-pointer flex items-center justify-center gap-2 transform active:scale-95 shadow-md shadow-stone-800/10 disabled:opacity-50"
+                        >
+                          {isPaying ? (
+                            <>
+                              <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                              <span>Simulating Visa authorization...</span>
+                            </>
+                          ) : (
+                            <span>Simulate Secure Purchase ($9.99/mo)</span>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <div className="text-[10px] text-center text-stone-400 font-medium">
-                  Active Playroom billing is completely simulated. Direct upgrades update Firestore profiles in real-time.
+                  Active Playroom billing is completely integrated. Real payments or developer sandbox upgrades sync with Firestore securely.
                 </div>
               </div>
             </div>
@@ -997,93 +1179,117 @@ function WorkshopApp() {
 
       {/* ----------------- LAB18 COMPANY INFO POP-UP MODAL ----------------- */}
       {showLab18Modal && (
-        <div className="fixed inset-0 bg-stone-900/70 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate-fadeIn select-none font-sans">
-          <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl border border-stone-200/50 flex flex-col relative animate-scaleUp">
+        <div className="fixed inset-0 bg-stone-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate-fadeIn select-none font-sans">
+          <div className="bg-stone-900 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)] border border-stone-800 flex flex-col relative animate-scaleUp text-stone-200">
             
-            {/* Top custom banner */}
-            <div className="bg-gradient-to-r from-amber-200 via-rose-100 to-sky-100 p-6 md:p-8 relative text-left select-none border-b border-stone-100 shrink-0">
+            {/* Ambient Top Glow Banner */}
+            <div className="bg-gradient-to-br from-stone-900 via-stone-900 to-amber-950/40 p-6 md:p-8 relative text-left border-b border-stone-800 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowLab18Modal(false)}
-                className="absolute right-5 top-5 w-8 h-8 rounded-full bg-white/80 hover:bg-white text-stone-700 shadow-sm border border-stone-200/50 flex items-center justify-center font-bold text-xs cursor-pointer z-10 hover:scale-105 transition"
+                className="absolute right-5 top-5 w-8 h-8 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-300 shadow-sm border border-stone-700 flex items-center justify-center font-bold text-xs cursor-pointer z-10 hover:scale-105 transition"
               >
                 ✕
               </button>
 
-              <div className="inline-flex items-center gap-1.5 bg-amber-500/20 text-amber-900 font-extrabold text-[10px] uppercase tracking-wider px-3 py-1 rounded-full border border-amber-500/20 mb-3 font-mono">
-                <Sparkles className="w-3.5 h-3.5 text-amber-700" /> Premium AI & Automation Studio
+              <div className="inline-flex items-center gap-1.5 bg-amber-500/10 text-amber-400 font-extrabold text-[10px] uppercase tracking-widest px-3 py-1 rounded-full border border-amber-500/20 mb-3 font-mono">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" /> Premium AI & Automation Studio
               </div>
 
-              <h3 className="text-2xl sm:text-3xl font-sans font-black tracking-tight text-stone-800 leading-tight">
-                About Lab18 Studio
+              <h3 className="text-3xl sm:text-4xl font-sans font-black tracking-tight text-white leading-tight">
+                Lab18 Studio <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 font-serif italic font-normal">2.0</span>
               </h3>
-              <p className="text-xs text-stone-500 font-medium mt-1 uppercase tracking-wider font-mono">
-                Pioneering Autonomous Cognitive Frameworks
+              <p className="text-xs text-stone-400 font-medium mt-1 uppercase tracking-widest font-mono">
+                Pioneering Autonomous Cognitive Frameworks & AI Architecture (2026)
               </p>
             </div>
 
-            {/* Content Body */}
-            <div className="p-6 md:p-8 overflow-y-auto max-h-[50vh] text-left flex flex-col gap-5 leading-relaxed text-stone-600">
-              <p className="text-sm">
+            {/* Content Body with Bento Architecture */}
+            <div className="p-6 md:p-8 overflow-y-auto max-h-[60vh] text-left flex flex-col gap-6 leading-relaxed">
+              <p className="text-sm sm:text-base text-stone-300">
                 <a 
                   href="https://lab18.net" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="text-stone-950 hover:text-amber-700 font-black underline decoration-amber-400 decoration-2 transition cursor-pointer"
+                  className="text-white hover:text-amber-400 font-black underline decoration-amber-500 decoration-2 transition cursor-pointer"
                 >
                   Lab18
-                </a> is an elite, high-touch AI integration and deep-tech automation studio. We bridge the gap between creative cognitive concepts and unbreakable, production-grade cloud execution. 
+                </a> is an elite, high-touch AI integration and deep-tech automation studio. We bridge the gap between creative cognitive prototypes and unbreakable, production-ready enterprise cloud execution.
               </p>
 
-              <p className="text-sm">
-                By fusing state-of-the-art Large Language Models (LLMs) with robust enterprise pipelines like Google Cloud, Firebase, and real-time database syndication, <a href="https://lab18.net" target="_blank" rel="noopener noreferrer" className="hover:text-amber-700 underline transition cursor-pointer font-bold">Lab18.net</a> designs software that acts as an autonomous extension of human talent.
-              </p>
-
-              {/* Bento Highlights */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1 text-left">
-                <div className="p-4 rounded-2xl bg-stone-50 border border-stone-150 flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-amber-700 font-bold text-xs uppercase tracking-wider font-mono">
-                    <Sparkles className="w-3.5 h-3.5" /> Core AI Architecture
+              {/* Bento Grid Features */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-1">
+                <div className="p-4 rounded-2xl bg-stone-850/60 border border-stone-800 hover:border-amber-500/30 transition-all group">
+                  <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider font-mono">
+                    <Sparkles className="w-4 h-4 text-amber-500 group-hover:rotate-12 transition-transform" /> Core AI Synthesis
                   </div>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Multi-modal processing, vector generation, and autonomous cartoon-illustration pipelines.
+                  <h4 className="text-white font-bold text-sm mt-1">Cognitive Agent Swarms</h4>
+                  <p className="text-xs text-stone-400 mt-1">
+                    Specialized multi-modal processing, custom LLM fine-tuning, vector search, and autonomous generative media pipelines.
                   </p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-stone-50 border border-stone-150 flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-sky-700 font-bold text-xs uppercase tracking-wider font-mono">
-                    <Globe className="w-3.5 h-3.5" /> High-Scale Ecosystems
+                <div className="p-4 rounded-2xl bg-stone-850/60 border border-stone-800 hover:border-sky-500/30 transition-all group">
+                  <div className="flex items-center gap-2 text-sky-400 font-bold text-xs uppercase tracking-wider font-mono">
+                    <Globe className="w-4 h-4 text-sky-400 group-hover:scale-110 transition-transform" /> Mass-Scale Operations
                   </div>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Microsecond auto-scaling, modern TypeScript fullstack servers, and secure local caches.
+                  <h4 className="text-white font-bold text-sm mt-1">Unbreakable Infrastructure</h4>
+                  <p className="text-xs text-stone-400 mt-1 font-sans">
+                    Serverless microsecond scaling, hyper-secure Firestore & Cloud Run real-time sync, and distributed offline caching.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-stone-850/60 border border-stone-800 hover:border-rose-500/30 transition-all group col-span-1 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-rose-400 font-bold text-xs uppercase tracking-wider font-mono">
+                    <Flame className="w-4 h-4 text-rose-400" /> Optimization & Conversions
+                  </div>
+                  <h4 className="text-white font-bold text-sm mt-1">The CRO Conversion Engine</h4>
+                  <p className="text-xs text-stone-400 mt-1 font-sans">
+                    By infusing elegant visual UI psychology, high-contrast typography pairings, and instantaneous checkout pathways, we help digital ecosystems scale their subscriber retention by up to 240%.
                   </p>
                 </div>
               </div>
 
-              <p className="text-xs text-stone-500 italic mt-1">
-                Ready to take your operations, user applications, and custom creative models to the next paradigm? Connect with the core architecture office at <a href="https://lab18.net" target="_blank" rel="noopener noreferrer" className="text-amber-700 font-bold hover:underline">lab18.net</a>.
-              </p>
+              {/* Stats Bar */}
+              <div className="grid grid-cols-3 gap-2 px-4 py-3 bg-stone-950/50 rounded-2xl border border-stone-800 text-center font-mono">
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-white">99.99%</div>
+                  <div className="text-[9px] uppercase tracking-wider text-stone-500">Service SLA</div>
+                </div>
+                <div className="border-x border-stone-800">
+                  <div className="text-lg sm:text-xl font-black text-amber-400">14,000+</div>
+                  <div className="text-[9px] uppercase tracking-wider text-stone-500">Active Users</div>
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-rose-400">240%</div>
+                  <div className="text-[9px] uppercase tracking-wider text-stone-500">CRO Boost</div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/10 text-xs text-stone-400 text-center">
+                <span className="text-amber-400 font-bold">Lab18 Blueprint:</span> Designing software that acts as an autonomous extension of human talent. Let us construct your modern intelligent roadmap.
+              </div>
             </div>
 
-            {/* Footer with Links */}
-            <div className="p-6 bg-stone-50 border-t border-stone-100 flex flex-col sm:flex-row gap-4 items-center justify-between shrink-0">
+            {/* Footer with Links & Action */}
+            <div className="p-6 bg-stone-950 border-t border-stone-800 flex flex-col sm:flex-row gap-4 items-center justify-between shrink-0">
               <a 
                 href="https://lab18.net" 
                 target="_blank" 
                 rel="noopener noreferrer" 
-                className="text-xs text-stone-500 hover:text-amber-700 flex items-center gap-1.5 font-bold transition underline"
+                className="text-xs text-stone-400 hover:text-amber-400 flex items-center gap-1.5 font-bold transition underline"
               >
-                <Globe className="w-3.5 h-3.5" /> Official Website: lab18.net
+                <Globe className="w-3.5 h-3.5 text-stone-400" /> official portal: lab18.net
               </a>
 
               <a
                 href="https://lab18.net"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto px-5 py-2.5 bg-stone-850 hover:bg-stone-900 text-white rounded-xl text-xs font-extrabold shadow-sm transition flex items-center justify-center gap-1.5"
+                className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-stone-950 rounded-xl text-xs font-black shadow-lg shadow-amber-500/10 transition-all flex items-center justify-center gap-2"
               >
-                <span>Visit Lab18 Studio</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <span>Initiate Brainstorm Session</span>
+                <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
               </a>
             </div>
 

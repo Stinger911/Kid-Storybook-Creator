@@ -13,11 +13,11 @@ import { useAuth } from '../context/AuthContext';
 interface BookStudioProps {
   book: KidBook;
   onBack: () => void;
-  onSave: (updatedBook: KidBook) => void;
+  onSave: (updatedBook: KidBook) => void | Promise<void>;
 }
 
 export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
-  const { user, setShowPremiumModal, toggleBookPublicity } = useAuth();
+  const { user, libraryMode, setShowPremiumModal, toggleBookPublicity } = useAuth();
   const [currentBook, setCurrentBook] = useState<KidBook>(book);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -41,10 +41,25 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   });
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [pagesToGenerate, setPagesToGenerate] = useState<number>(3);
 
   // Status banners
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const triggerSave = async (updatedBook: KidBook) => {
+    setIsSaving(true);
+    try {
+      await onSave(updatedBook);
+      setShowSaveSuccess(true);
+      setTimeout(() => setShowSaveSuccess(false), 2000);
+    } catch (e) {
+      console.error("Auto-save failed to replicate:", e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // active page helper
   const activePage = currentBook.pages[activePageIndex] || null;
@@ -89,14 +104,27 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     
     const nextBook = { ...currentBook, pages: updatedPages };
     setCurrentBook(nextBook);
-    onSave(nextBook);
+    triggerSave(nextBook);
   };
 
   // Turn page photo to black & white coloring template
   const handleColoringGenerated = (coloringUrl: string, originalUrl: string, adjustments: any) => {
     if (!activePage) return;
-    // Prevent state-update infinite loop: only update if changed
-    if (activePage.coloringImage !== coloringUrl || activePage.originalImage !== originalUrl) {
+    
+    const adjustmentsChanged = !activePage.coloringAdjustments || 
+      activePage.coloringAdjustments.threshold !== adjustments.threshold ||
+      activePage.coloringAdjustments.edgeStrength !== adjustments.edgeStrength ||
+      activePage.coloringAdjustments.brightness !== adjustments.brightness ||
+      activePage.coloringAdjustments.contrast !== adjustments.contrast ||
+      activePage.coloringAdjustments.invert !== adjustments.invert ||
+      activePage.coloringAdjustments.noProcess !== adjustments.noProcess;
+
+    // Prevent state-update infinite loop: update if image URLs changed or adjustments changed
+    if (
+      activePage.coloringImage !== coloringUrl || 
+      activePage.originalImage !== originalUrl ||
+      adjustmentsChanged
+    ) {
       handleUpdatePage({
         coloringImage: coloringUrl,
         originalImage: originalUrl,
@@ -131,7 +159,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     };
     setCurrentBook(nextBook);
     setActivePageIndex(nextBook.pages.length - 1);
-    onSave(nextBook);
+    triggerSave(nextBook);
   };
 
   // Delete page
@@ -153,7 +181,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     
     setCurrentBook(nextBook);
     setActivePageIndex(Math.max(0, index - 1));
-    onSave(nextBook);
+    triggerSave(nextBook);
   };
 
   // Trigger browser raw physical sheet printer layout and print helper instructions modal
@@ -167,9 +195,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   };
 
   const handleManualSave = () => {
-    onSave(currentBook);
-    setShowSaveSuccess(true);
-    setTimeout(() => setShowSaveSuccess(false), 3000);
+    triggerSave(currentBook);
   };
 
   const generateAIBook = async (e: React.FormEvent) => {
@@ -193,7 +219,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
           theme: aiPrompt,
           kidName: kidName,
           kidAge: kidAge,
-          pagesCount: 3
+          pagesCount: pagesToGenerate
         })
       });
 
@@ -234,7 +260,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
 
       setCurrentBook(newAIBook);
       setActivePageIndex(0);
-      onSave(newAIBook);
+      triggerSave(newAIBook);
       setAiPrompt('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Something went wrong generating your storybook. Let\'s try key fallback!');
@@ -259,11 +285,15 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">Story Workshop</span>
-              {showSaveSuccess && (
-                <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 animate-bounce" /> Auto-saved
+              {isSaving ? (
+                <span className="text-xs text-indigo-600 font-semibold flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> {libraryMode === 'cloud' ? 'Syncing to cloud...' : 'Saving...'}
                 </span>
-              )}
+              ) : showSaveSuccess ? (
+                <span className="text-xs text-emerald-650 font-semibold flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500 animate-bounce" /> {libraryMode === 'cloud' ? 'Synced to cloud' : 'Saved locally'}
+                </span>
+              ) : null}
             </div>
             <h2 className="text-xl font-sans font-bold text-stone-800 mt-0.5">{currentBook.title}</h2>
           </div>
@@ -280,7 +310,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   moderationStatus: 'pending' as const
                 };
                 setCurrentBook(updated);
-                onSave(updated);
+                triggerSave(updated);
                 await toggleBookPublicity(currentBook.id, !currentlyPublic);
               }}
               className={`px-3.5 py-2 text-xs font-black rounded-xl border flex items-center gap-1.5 transition cursor-pointer shadow-xs ${
@@ -378,7 +408,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   onChange={(e) => {
                     const next = { ...currentBook, title: e.target.value };
                     setCurrentBook(next);
-                    onSave(next);
+                    triggerSave(next);
                   }}
                   className="px-2.5 py-1 text-xs rounded border border-stone-300 bg-white text-stone-800"
                 />
@@ -392,7 +422,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   onChange={(e) => {
                     const next = { ...currentBook, author: e.target.value };
                     setCurrentBook(next);
-                    onSave(next);
+                    triggerSave(next);
                   }}
                   placeholder="Parent & Kids names"
                   className="px-2.5 py-1 text-xs rounded border border-stone-300 bg-white text-stone-800"
@@ -435,7 +465,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
             )}
 
             <form onSubmit={generateAIBook} className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
-              <div className="md:col-span-5 relative">
+              <div className="md:col-span-4 relative">
                 <input
                   type="text"
                   required
@@ -447,7 +477,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                 />
               </div>
 
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <input
                   type="text"
                   value={kidName}
@@ -471,10 +501,32 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                 </select>
               </div>
 
+              <div className="md:col-span-2">
+                <select
+                  value={pagesToGenerate}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (val > 3 && user?.subscriptionStatus !== 'premium') {
+                      setShowPremiumModal(true);
+                      setPagesToGenerate(3);
+                    } else {
+                      setPagesToGenerate(val);
+                    }
+                  }}
+                  disabled={aiGenerating}
+                  className="w-full px-3 py-2 bg-white text-stone-800 border border-stone-300 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200 text-stone-800 font-sans cursor-pointer"
+                >
+                  <option value={3}>3 Pages (Free)</option>
+                  <option value={5}>5 Pages {user?.subscriptionStatus !== 'premium' ? '🔒' : '✨'}</option>
+                  <option value={8}>8 Pages {user?.subscriptionStatus !== 'premium' ? '🔒' : '✨'}</option>
+                  <option value={12}>12 Pages {user?.subscriptionStatus !== 'premium' ? '🔒' : '✨'}</option>
+                </select>
+              </div>
+
               <button
                 type="submit"
                 disabled={aiGenerating}
-                className="md:col-span-2 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-1.5 shadow"
+                className="md:col-span-2 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
               >
                 {aiGenerating ? (
                   <>

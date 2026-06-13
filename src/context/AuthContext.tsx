@@ -31,6 +31,8 @@ export interface UserProfile {
   subscriptionStatus: 'free' | 'premium';
   subscriptionExpiresAt: string | null;
   role: 'user' | 'admin';
+  manuallyUpgraded?: boolean;
+  stripeSubscriptionId?: string | null;
   photoURL?: string;
   createdAt?: any;
   updatedAt?: any;
@@ -118,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: docSnap.id,
           title: data.title || '',
           author: data.author || '',
-          createdAt: data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Just now',
+          createdAt: (data.createdAt && typeof data.createdAt.seconds === 'number') ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Just now',
           themeColor: data.themeColor || 'from-sky-100 to-indigo-100',
           pages: data.pages || []
         });
@@ -155,7 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: docSnap.id,
           title: data.title || '',
           author: data.author || '',
-          createdAt: data.createdAt ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Library book',
+          createdAt: (data.createdAt && typeof data.createdAt.seconds === 'number') ? new Date(data.createdAt.seconds * 1000).toLocaleDateString() : 'Library book',
           themeColor: data.themeColor || 'from-sky-100 to-indigo-100',
           pages: data.pages || []
         });
@@ -187,6 +189,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           subscriptionStatus: data.subscriptionStatus || 'free',
           subscriptionExpiresAt: data.subscriptionExpiresAt || null,
           role: isBootstrappedAdmin ? 'admin' : (data.role || 'user'),
+          manuallyUpgraded: data.manuallyUpgraded || false,
+          stripeSubscriptionId: data.stripeSubscriptionId || null,
           photoURL: fUser.photoURL || data.photoURL || undefined,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt
@@ -415,7 +419,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           title: d.title || '',
           author: d.author || '',
           userEmail: userEmailsMap[d.userId] || d.userEmail || '',
-          createdAt: d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString() : 'Just now',
+          createdAt: (d.createdAt && typeof d.createdAt.seconds === 'number') ? new Date(d.createdAt.seconds * 1000).toLocaleDateString() : 'Just now',
           themeColor: d.themeColor || 'from-sky-100 to-indigo-100',
           pages: d.pages || [],
           isPublic: d.isPublic || false,
@@ -481,13 +485,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(userRef, {
         subscriptionStatus: status,
         subscriptionExpiresAt: status === 'premium' ? thirtyDays.toISOString() : null,
+        manuallyUpgraded: status === 'premium',
         updatedAt: serverTimestamp()
       });
 
       setAdminUsers(prev => prev.map(u => u.uid === userId ? { 
         ...u, 
         subscriptionStatus: status,
-        subscriptionExpiresAt: status === 'premium' ? thirtyDays.toISOString() : null
+        subscriptionExpiresAt: status === 'premium' ? thirtyDays.toISOString() : null,
+        manuallyUpgraded: status === 'premium'
       } : u));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `users/${userId}`);

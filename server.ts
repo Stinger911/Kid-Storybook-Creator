@@ -4,13 +4,24 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import fs from "fs";
+import Stripe from "stripe";
+import { initializeApp, cert, getApp, getApps, App } from "firebase-admin/app";
+import { getFirestore, FieldValue, Firestore } from "firebase-admin/firestore";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
+// Conditional JSON parsing to preserve raw body for Stripe webhook signature verification
+app.use((req, res, next) => {
+  if (req.originalUrl === "/api/stripe/webhook") {
+    next();
+  } else {
+    express.json({ limit: '10mb' })(req, res, next);
+  }
+});
 
 // Reverse proxy Firebase Authentication requests to bypass CORS and third-party cookie blocks on custom domains
 app.use(
@@ -205,6 +216,302 @@ Output must be in JSON matching this schema.`;
       }
     }
     res.status(500).json({ error: `Gemini Story Generation Error: ${errorMessage}` });
+  }
+});
+
+// ==========================================
+// STRIPE & FIREBASE ADMIN SUBSCRIPTION SUITE
+// ==========================================
+
+// Lazy initializer for Stripe
+let stripeClient: Stripe | null = null;
+function getStripe(): Stripe | null {
+  if (!stripeClient) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (key && key !== "MY_STRIPE_SECRET_KEY") {
+      stripeClient = new Stripe(key, {
+        apiVersion: "2023-10-16" as any,
+      });
+      console.log("[Stripe] Successfully initialized Stripe Client.");
+    }
+  }
+  return stripeClient;
+}
+
+// Lazy initializer for Firebase Admin App
+let firebaseAdminApp: App | null = null;
+function getFirebaseAdmin(): App | null {
+  if (!firebaseAdminApp) {
+    try {
+      const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+      if (serviceAccountJson) {
+        try {
+          const credentials = JSON.parse(serviceAccountJson);
+          firebaseAdminApp = initializeApp({
+            credential: cert(credentials)
+          }, "admin-app");
+          console.log("[Firebase Admin] Initialized with Service Account.");
+        } catch (e) {
+          console.error("[Firebase Admin] Failed parsing Service Account Key JSON:", e);
+        }
+      }
+
+      if (!firebaseAdminApp) {
+        const apps = getApps();
+        if (apps.length === 0) {
+          firebaseAdminApp = initializeApp();
+          console.log("[Firebase Admin] Initialized using Default Credentials.");
+        } else {
+          firebaseAdminApp = apps[0]!;
+        }
+      }
+    } catch (e) {
+      console.error("[Firebase Admin] Initialization failure:", e);
+    }
+  }
+  return firebaseAdminApp;
+}
+
+// Lazy Firestore Admin client initialization to query custom named databases
+let firestoreAdminInstance: Firestore | null = null;
+function getFirestoreAdmin(): Firestore | null {
+  if (!firestoreAdminInstance) {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) return null;
+
+    try {
+      const fsConfig = JSON.parse(fs.readFileSync(path.resolve("./firebase-applet-config.json"), "utf-8"));
+      const dbId = fsConfig.firestoreDatabaseId;
+
+      firestoreAdminInstance = getFirestore(adminApp, dbId);
+      console.log(`[Firebase Admin] Firestore Client initialized targeting named database: ${dbId}`);
+    } catch (e) {
+      console.warn("[Firebase Admin] Falling back to default getFirestore(). Error details:", e);
+      firestoreAdminInstance = getFirestore(adminApp);
+    }
+  }
+  return firestoreAdminInstance;
+}
+
+// Helper: Securely update premium status in Firestore
+async function updatePremiumStatus(uid: string, customData: {
+  subscriptionStatus: "premium" | "free";
+  stripeSubscriptionId?: string | null;
+  stripeCustomerId?: string | null;
+  subscriptionExpiresAt?: string | null;
+  manuallyUpgraded?: boolean;
+}) {
+  const dbAdmin = getFirestoreAdmin();
+  if (!dbAdmin) {
+    throw new Error("Unable to initialize admin Firestore client");
+  }
+
+  try {
+    const docRef = dbAdmin.collection("users").doc(uid);
+    await docRef.set({
+      ...customData,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log(`[Firebase Admin] Synced billing profiles for users/${uid} to: ${customData.subscriptionStatus}`);
+  } catch (err) {
+    console.error(`[Firebase Admin] Failed writing billing data for users/${uid}:`, err);
+    throw err;
+  }
+}
+
+// Helper: Query user profile by Stripe subscription ID
+async function getUserByStripeSubscription(subscriptionId: string) {
+  const dbAdmin = getFirestoreAdmin();
+  if (!dbAdmin) return null;
+
+  try {
+    const snap = await dbAdmin.collection("users")
+      .where("stripeSubscriptionId", "==", subscriptionId)
+      .limit(1)
+      .get();
+
+    if (snap.empty) return null;
+    return snap.docs[0];
+  } catch (err) {
+    console.error(`[Firebase Admin] Query user by stripe subscription (${subscriptionId}) failed:`, err);
+    return null;
+  }
+}
+
+// API: Check Stripe Status
+app.get("/api/stripe/status", (req, res) => {
+  const isAvailable = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "MY_STRIPE_SECRET_KEY";
+  res.json({
+    available: isAvailable,
+    priceId: process.env.STRIPE_PRICE_ID || "not_configured"
+  });
+});
+
+// API: Create Stripe subscription checkout session
+app.post("/api/stripe/create-checkout-session", async (req, res) => {
+  const { uid, email, returnUrl } = req.body;
+  if (!uid || !email) {
+    return res.status(400).json({ error: "Missing required params: uid, email" });
+  }
+
+  const isStripeConfigured = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "MY_STRIPE_SECRET_KEY";
+  if (!isStripeConfigured) {
+    console.log("[Stripe] Stripe is offline/unconfigured. Activating Sandbox Checkout flow.");
+    return res.json({
+      sandbox: true,
+      url: `/checkout-sandbox?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&returnUrl=${encodeURIComponent(returnUrl || "")}`
+    });
+  }
+
+  try {
+    const stripe = getStripe();
+    if (!stripe) {
+      throw new Error("Stripe engine failed to load");
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: process.env.STRIPE_PRICE_ID || undefined,
+          price_data: process.env.STRIPE_PRICE_ID ? undefined : {
+            currency: "usd",
+            product_data: {
+              name: "StoryCraft Pro Monthly Access",
+              description: "Unlimited cloud books, full community library sharing & AI books generation.",
+            },
+            unit_amount: 999, // $9.99
+            recurring: {
+              interval: "month",
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "subscription",
+      success_url: `${returnUrl || "https://storycraft.lab18.net"}?checkout_status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${returnUrl || "https://storycraft.lab18.net"}?checkout_status=cancel`,
+      customer_email: email,
+      client_reference_id: uid,
+      metadata: {
+        userId: uid,
+      },
+    });
+
+    res.json({ url: session.url, sandbox: false });
+  } catch (error: any) {
+    console.error("Failed to compile Stripe session:", error);
+    res.status(500).json({ error: error.message || "Failed to compile checkout session" });
+  }
+});
+
+// API: Stripe Webhook handler
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+  try {
+    if (webhookSecret && sig) {
+      const stripe = getStripe();
+      if (stripe) {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } else {
+        event = JSON.parse(req.body.toString());
+      }
+    } else {
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err: any) {
+    console.error("Stripe Webhook parsing or validation failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log(`[Stripe Webhook] Received subscription event: ${event.type}`);
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        const uid = session.client_reference_id || session.metadata?.userId;
+        const subscriptionId = session.subscription;
+        const customerId = session.customer;
+
+        if (uid) {
+          const thirtyDays = new Date();
+          thirtyDays.setDate(thirtyDays.getDate() + 30);
+
+          await updatePremiumStatus(uid, {
+            subscriptionStatus: "premium",
+            stripeSubscriptionId: typeof subscriptionId === "string" ? subscriptionId : null,
+            stripeCustomerId: typeof customerId === "string" ? customerId : null,
+            subscriptionExpiresAt: thirtyDays.toISOString(),
+            manuallyUpgraded: false // Securely overrides manual flag for actual stripe buyers
+          });
+        }
+        break;
+      }
+      case "invoice.payment_succeeded": {
+        const invoice = event.data.object;
+        const subscriptionId = invoice.subscription;
+        if (typeof subscriptionId === "string") {
+          const userDoc = await getUserByStripeSubscription(subscriptionId);
+          if (userDoc) {
+            const userData = userDoc.data();
+            // Respect user intent: ignore manually upgraded users
+            if (userData?.manuallyUpgraded === true) {
+              console.log("[Stripe Webhook] Bypassing renewal cycle for manually upgraded user:", userDoc.id);
+              break;
+            }
+
+            const thirtyDays = new Date();
+            thirtyDays.setDate(thirtyDays.getDate() + 30);
+
+            await updatePremiumStatus(userDoc.id, {
+              subscriptionStatus: "premium",
+              subscriptionExpiresAt: thirtyDays.toISOString(),
+            });
+          }
+        }
+        break;
+      }
+      case "customer.subscription.deleted":
+      case "customer.subscription.updated": {
+        const sub = event.data.object;
+        const subId = sub.id;
+        const status = sub.status;
+
+        const userDoc = await getUserByStripeSubscription(subId);
+        if (userDoc) {
+          const userData = userDoc.data();
+          // Respect user intent: ignore manually upgraded users
+          if (userData?.manuallyUpgraded === true) {
+            console.log("[Stripe Webhook] Bypassing cancellation logic for manually upgraded user:", userDoc.id);
+            break;
+          }
+
+          if (status === "active") {
+            const currentPeriodEnd = new Date(sub.current_period_end * 1000);
+            await updatePremiumStatus(userDoc.id, {
+              subscriptionStatus: "premium",
+              subscriptionExpiresAt: currentPeriodEnd.toISOString(),
+            });
+          } else if (status === "canceled" || status === "unpaid") {
+            // Cancel subscription
+            await updatePremiumStatus(userDoc.id, {
+              subscriptionStatus: "free",
+              stripeSubscriptionId: null,
+              subscriptionExpiresAt: null,
+            });
+          }
+        }
+        break;
+      }
+    }
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error("Express webhook parsing error:", error);
+    res.status(500).json({ error: "Webhook parsing error" });
   }
 });
 

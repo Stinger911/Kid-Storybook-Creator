@@ -54,6 +54,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
 
   // Determine active displayed shelf based on auth/libraryMode
   const activeBooks = libraryMode === 'cloud' ? cloudBooks : localBooks;
+  const customLocalBooks = localBooks.filter(b => b.id !== 'space-adv' && b.id !== 'sea-expl');
 
   // Import local guest books up to cloud
   const [isImporting, setIsImporting] = useState(false);
@@ -68,15 +69,17 @@ export default function Library({ onSelectBook }: LibraryProps) {
       if (saved) {
         const parsed: KidBook[] = JSON.parse(saved);
         for (const bk of parsed) {
+          // Prevent uploading template starter books
+          if (bk.id === 'space-adv' || bk.id === 'sea-expl') continue;
           // Sync book securely to Cloud Firestore linked to active profile
           await saveBookToStore(bk);
         }
       }
       setImportStatus("Import successful!");
-      // Clear localStorage books after import to clean up local shelf conflict
-      localStorage.removeItem('kid-book-factory-saved-books');
-      setLocalBooks([]);
-      setTimeout(() => setImportStatus(null), 3000);
+      // Reset localStorage back to default templates after import to prevent conflicts
+      localStorage.setItem('kid-book-factory-saved-books', JSON.stringify(STARTER_TEMPLATES));
+      setLocalBooks(STARTER_TEMPLATES);
+      setTimeout(() => setImportStatus(null), 3500);
     } catch (e) {
       console.error(e);
       setImportStatus("Failed to sync some files.");
@@ -259,7 +262,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
       </div>
 
       {/* Local-to-Cloud Sync Migration CTA (Only if Guest has Local books and then logged In) */}
-      {user && localBooks.length > 0 && (
+      {user && customLocalBooks.length > 0 && (
         <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-4 sm:p-5 text-white flex flex-col sm:flex-row justify-between items-center gap-4 text-left shadow-lg border border-blue-400 animate-pulse">
           <div className="flex items-center gap-3.5">
             <div className="p-2.5 bg-white/10 rounded-xl">
@@ -267,7 +270,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
             </div>
             <div>
               <h4 className="font-bold text-sm sm:text-base">Move guest books to your cloud profile?</h4>
-              <p className="text-xs text-blue-100">You have {localBooks.length} local books. Sync them now to access on other devices!</p>
+              <p className="text-xs text-blue-100">You have {customLocalBooks.length} local books. Sync them now to access on other devices!</p>
             </div>
           </div>
           <button

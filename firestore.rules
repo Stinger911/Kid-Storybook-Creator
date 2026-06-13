@@ -79,37 +79,29 @@ service cloud.firestore {
 
     // Books Collection
     match /books/{bookId} {
-      function isValidBook(data) {
-        return data.get('id', '') is string && data.get('id', '').size() <= 128
-          && data.get('userId', '') is string && data.get('userId', '').size() <= 128
-          && data.get('title', '') is string && data.get('title', '').size() <= 256
-          && data.get('author', '') is string && data.get('author', '').size() <= 256
-          && data.get('themeColor', '') is string && data.get('themeColor', '').size() <= 128
-          && data.get('isPublic', false) is bool
-          && data.get('moderationStatus', 'pending') is string && (data.get('moderationStatus', 'pending') == 'approved' || data.get('moderationStatus', 'pending') == 'pending' || data.get('moderationStatus', 'pending') == 'rejected');
-      }
+      allow get: if isVerifiedUser() && (
+        resource.data.userId == request.auth.uid || 
+        (resource.data.get('isPublic', false) == true && resource.data.get('moderationStatus', 'pending') == 'approved') || 
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.userId == request.auth.uid || 
+        (resource.data.get('isPublic', false) == true && resource.data.get('moderationStatus', 'pending') == 'approved') || 
+        isAdmin()
+      );
 
-      allow get: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || (existing().get('isPublic', false) == true && existing().get('moderationStatus', 'pending') == 'approved') || isAdmin());
-      allow list: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || (existing().get('isPublic', false) == true && existing().get('moderationStatus', 'pending') == 'approved') || isAdmin());
+      allow create: if isVerifiedUser() && 
+        request.resource.data.userId == request.auth.uid;
 
-      allow create: if isVerifiedUser() && isValidBook(incoming()) 
-        && incoming().get('userId', '') == request.auth.uid 
-        && (incoming().get('moderationStatus', 'pending') == 'approved' || incoming().get('moderationStatus', 'pending') == 'pending')
-        && incoming().get('createdAt', request.time) == request.time;
+      allow update: if isVerifiedUser() && (
+        resource.data.userId == request.auth.uid || 
+        isAdmin()
+      );
 
-      allow update: if isVerifiedUser() && isValidBook(incoming())
-        && incoming().get('id', '') == existing().get('id', '')
-        && incoming().get('userId', '') == existing().get('userId', '')
-        && incoming().get('createdAt', request.time) == existing().get('createdAt', request.time)
-        && (
-          (
-            existing().get('userId', '') == request.auth.uid 
-            && (incoming().get('moderationStatus', 'pending') == existing().get('moderationStatus', 'pending') || incoming().get('moderationStatus', 'pending') == 'pending')
-          )
-          || isAdmin()
-        );
-
-      allow delete: if isVerifiedUser() && (existing().get('userId', '') == request.auth.uid || isAdmin());
+      allow delete: if isVerifiedUser() && (
+        resource.data.userId == request.auth.uid || 
+        isAdmin()
+      );
     }
   }
 }
