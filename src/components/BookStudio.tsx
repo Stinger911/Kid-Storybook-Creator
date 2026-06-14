@@ -73,7 +73,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
       // skip the Storage upload entirely (data URL → storage URL migration).
       if (savedBook?.pages) {
         setCurrentBook(prev => {
-          const byId = new Map(savedBook.pages.map(p => [p.id, p]));
+          const byId = new Map<string, BookPage>(savedBook.pages.map(p => [p.id, p]));
           return {
             ...prev,
             pages: prev.pages.map(p => {
@@ -308,27 +308,26 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
         throw new Error(data.error);
       }
 
-      const generatedPages: BookPage[] = data.pages.map((p: any, idx: number) => ({
+      const startNum = currentBook.pages.length + 1;
+      const newPages: BookPage[] = data.pages.map((p: any, idx: number) => ({
         id: generateId(),
         title: p.pageTitle,
         type: 'mixed',
         layout: 'coloring-top-writing-bottom',
         storyText: p.storyText,
         tracingText: p.tradingWord || '',
-        pageNumber: idx + 1,
+        pageNumber: startNum + idx,
         coloringAdjustments: { threshold: 40, edgeStrength: 3, brightness: 15, contrast: 50, invert: false }
       }));
 
-      const newAIBook: KidBook = {
+      const nextBook: KidBook = {
         ...currentBook,
-        title: data.bookTitle,
-        author: `${kidName || 'Me'} & ${currentBook.author || 'Parent'}`,
-        pages: generatedPages
+        pages: [...currentBook.pages, ...newPages],
       };
 
-      setCurrentBook(newAIBook);
-      setActivePageIndex(0);
-      triggerSave(newAIBook, true);
+      setCurrentBook(nextBook);
+      setActivePageIndex(nextBook.pages.length - 1);
+      triggerSave(nextBook, true);
       setAiPrompt('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Something went wrong generating your storybook. Let\'s try key fallback!');
@@ -521,9 +520,9 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="font-sans font-bold text-stone-800 text-sm">Write Story Book with AI Magic</h4>
+                  <h4 className="font-sans font-bold text-stone-800 text-sm">Continue Story with AI</h4>
                   <p className="text-xs text-stone-600 mt-1">
-                    Describe your fairytale idea below! Our companion Gemini writer will instantly spin a magical children's adventure book complete with key vocabulary writing practice!
+                    Describe what happens next and Gemini will add new pages to this book — complete with story text and handwriting practice words.
                   </p>
                 </div>
               </div>
@@ -546,7 +545,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   required
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="e.g. A friendly dragon who wanted to bake blueberry muffins"
+                  placeholder="e.g. The dragon finds a hidden door in the forest…"
                   disabled={aiGenerating}
                   className="w-full pl-3 pr-4 py-2 bg-white text-stone-800 placeholder-stone-400 border border-stone-300 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200 text-stone-800"
                 />
@@ -611,7 +610,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>Create Story</span>
+                    <span>Add Pages</span>
                   </>
                 )}
               </button>

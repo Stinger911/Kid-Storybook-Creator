@@ -28,13 +28,22 @@ export default function Library({ onSelectBook }: LibraryProps) {
   const [localBooks, setLocalBooks] = useState<KidBook[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'shelf' | 'community'>('shelf');
-  
+  const [createMode, setCreateMode] = useState<'blank' | 'ai'>('blank');
+
   // Create blank book inputs
   const [newTitle, setNewTitle] = useState('');
   const [newParentName, setNewParentName] = useState('');
   const [newKidName, setNewKidName] = useState('');
   const [newTheme, setNewTheme] = useState('from-sky-100 to-indigo-100');
   const [bookToDelete, setBookToDelete] = useState<string | null>(null);
+
+  // AI creation inputs
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiKidName, setAiKidName] = useState(() => { try { return localStorage.getItem('storycraft_kid_name') || ''; } catch { return ''; } });
+  const [aiKidAge, setAiKidAge] = useState<number>(() => { try { const s = localStorage.getItem('storycraft_kid_age'); return s ? Number(s) : 5; } catch { return 5; } });
+  const [aiPages, setAiPages] = useState(3);
+  const [isCreatingAI, setIsCreatingAI] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Load and seed saved books from localStorage for guest mode
   useEffect(() => {
@@ -135,6 +144,75 @@ export default function Library({ onSelectBook }: LibraryProps) {
 
     // Go straight to editing workspace
     onSelectBook(newBook);
+  };
+
+  const handleCreateAIBook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+
+    if (user?.subscriptionStatus !== 'premium') {
+      setShowCreateModal(false);
+      setShowPremiumModal(true);
+      return;
+    }
+
+    if (libraryMode === 'cloud' && activeBooks.length >= 2 && user?.subscriptionStatus !== 'premium') {
+      setShowCreateModal(false);
+      setShowPremiumModal(true);
+      return;
+    }
+
+    setIsCreatingAI(true);
+    setAiError(null);
+
+    try {
+      const res = await fetch('/api/generate-story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: aiPrompt, kidName: aiKidName, kidAge: aiKidAge, pagesCount: aiPages }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `API error ${res.status}`);
+
+      const pages: BookPage[] = data.pages.map((p: any, idx: number) => ({
+        id: generateId(),
+        title: p.pageTitle,
+        type: 'mixed' as const,
+        layout: 'coloring-top-writing-bottom' as const,
+        storyText: p.storyText,
+        tracingText: p.tradingWord || '',
+        pageNumber: idx + 1,
+        coloringAdjustments: { threshold: 40, edgeStrength: 3, brightness: 15, contrast: 50, invert: false },
+      }));
+
+      const newBook: KidBook = {
+        id: generateId(),
+        title: data.bookTitle,
+        author: `${aiKidName || 'Me'} & ${newParentName || 'Parent'}`,
+        createdAt: new Date().toLocaleDateString(),
+        themeColor: newTheme,
+        pages,
+      };
+
+      try { localStorage.setItem('storycraft_kid_name', aiKidName); } catch {}
+      try { localStorage.setItem('storycraft_kid_age', String(aiKidAge)); } catch {}
+
+      if (libraryMode === 'cloud') {
+        await saveBookToStore(newBook);
+      } else {
+        const nextBooks = [newBook, ...localBooks];
+        setLocalBooks(nextBooks);
+        localStorage.setItem('kid-book-factory-saved-books', JSON.stringify(nextBooks));
+      }
+
+      setShowCreateModal(false);
+      setAiPrompt('');
+      onSelectBook(newBook);
+    } catch (err: any) {
+      setAiError(err.message || 'AI generation failed. Please try again.');
+    } finally {
+      setIsCreatingAI(false);
+    }
   };
 
   const handleDeleteClick = (id: string, e: React.MouseEvent) => {
@@ -494,7 +572,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
       {showCreateModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-xl border border-stone-100 flex flex-col">
-            
+
             {/* Modal Header */}
             <div className="p-6 bg-gradient-to-r from-amber-400 to-amber-300 flex justify-between items-center text-stone-800">
               <div className="flex items-center gap-2">
@@ -502,81 +580,217 @@ export default function Library({ onSelectBook }: LibraryProps) {
                 <h3 className="font-sans font-black tracking-tight text-sm uppercase">Create A Brand New Story</h3>
               </div>
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); setAiError(null); }}
                 className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center text-stone-800 font-bold text-sm select-none cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            {/* Modal Inputs form */}
-            <form onSubmit={handleCreateBook} className="p-6 flex flex-col gap-4 text-left">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-stone-600">Storybook Title</label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. My Magical Unicorn Journey"
-                  className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-stone-600">Kid's Name</label>
-                  <input
-                    type="text"
-                    value={newKidName}
-                    onChange={(e) => setNewKidName(e.target.value)}
-                    placeholder="Leo"
-                    className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-stone-600">Parent/Helper Name</label>
-                  <input
-                    type="text"
-                    value={newParentName}
-                    onChange={(e) => setNewParentName(e.target.value)}
-                    placeholder="Dad"
-                    className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
-                  />
-                </div>
-              </div>
-
-              {/* Theme Selector */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-stone-600">Choose Cover Pastel Theme</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { style: 'from-sky-100 to-indigo-100', name: 'Blue Sky' },
-                    { style: 'from-rose-100 to-amber-100', name: 'Sunset' },
-                    { style: 'from-teal-50 to-emerald-100', name: 'Ocean' },
-                    { style: 'from-violet-100 to-rose-100', name: 'Dream' }
-                  ].map((t) => (
-                    <button
-                      key={t.style}
-                      type="button"
-                      onClick={() => setNewTheme(t.style)}
-                      className={`h-11 rounded-xl bg-gradient-to-r ${t.style} border-2 transition cursor-pointer ${
-                        newTheme === t.style ? 'border-amber-500 scale-105' : 'border-stone-100 hover:border-stone-200'
-                      }`}
-                      title={t.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
+            {/* Mode tabs */}
+            <div className="flex border-b border-stone-200">
               <button
-                type="submit"
-                className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm md:text-base rounded-2xl shadow shadow-amber-200 transition mt-2 transform active:scale-95 cursor-pointer"
+                type="button"
+                onClick={() => setCreateMode('blank')}
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wide transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  createMode === 'blank' ? 'text-amber-700 border-b-2 border-amber-500 bg-amber-50/50' : 'text-stone-400 hover:text-stone-600'
+                }`}
               >
-                Create storybook & edit ✨
+                <BookOpen className="w-3.5 h-3.5" /> Blank Book
               </button>
-            </form>
+              <button
+                type="button"
+                onClick={() => setCreateMode('ai')}
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wide transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  createMode === 'ai' ? 'text-indigo-700 border-b-2 border-indigo-500 bg-indigo-50/50' : 'text-stone-400 hover:text-stone-600'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> AI Story
+              </button>
+            </div>
+
+            {/* Blank book form */}
+            {createMode === 'blank' && (
+              <form onSubmit={handleCreateBook} className="p-6 flex flex-col gap-4 text-left">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-600">Storybook Title</label>
+                  <input
+                    type="text"
+                    required
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="e.g. My Magical Unicorn Journey"
+                    className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Kid's Name</label>
+                    <input
+                      type="text"
+                      value={newKidName}
+                      onChange={(e) => setNewKidName(e.target.value)}
+                      placeholder="Leo"
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Parent/Helper Name</label>
+                    <input
+                      type="text"
+                      value={newParentName}
+                      onChange={(e) => setNewParentName(e.target.value)}
+                      placeholder="Dad"
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-amber-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-600">Choose Cover Pastel Theme</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { style: 'from-sky-100 to-indigo-100', name: 'Blue Sky' },
+                      { style: 'from-rose-100 to-amber-100', name: 'Sunset' },
+                      { style: 'from-teal-50 to-emerald-100', name: 'Ocean' },
+                      { style: 'from-violet-100 to-rose-100', name: 'Dream' }
+                    ].map((t) => (
+                      <button
+                        key={t.style}
+                        type="button"
+                        onClick={() => setNewTheme(t.style)}
+                        className={`h-11 rounded-xl bg-gradient-to-r ${t.style} border-2 transition cursor-pointer ${
+                          newTheme === t.style ? 'border-amber-500 scale-105' : 'border-stone-100 hover:border-stone-200'
+                        }`}
+                        title={t.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm rounded-2xl shadow shadow-amber-200 transition mt-2 transform active:scale-95 cursor-pointer"
+                >
+                  Create storybook & edit ✨
+                </button>
+              </form>
+            )}
+
+            {/* AI story form */}
+            {createMode === 'ai' && (
+              <form onSubmit={handleCreateAIBook} className="p-6 flex flex-col gap-4 text-left">
+                <p className="text-xs text-stone-500">
+                  Gemini will write a complete illustrated storybook with handwriting practice. Premium feature.
+                </p>
+
+                {aiError && (
+                  <div className="p-3 bg-rose-50 text-rose-700 text-xs font-medium rounded-xl border border-rose-100">
+                    {aiError}
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-600">Story Idea</label>
+                  <input
+                    type="text"
+                    required
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="e.g. A friendly dragon who wanted to bake blueberry muffins"
+                    disabled={isCreatingAI}
+                    className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-200"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Kid's Name</label>
+                    <input
+                      type="text"
+                      value={aiKidName}
+                      onChange={(e) => setAiKidName(e.target.value)}
+                      placeholder="Leo"
+                      disabled={isCreatingAI}
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-200"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Parent's Name</label>
+                    <input
+                      type="text"
+                      value={newParentName}
+                      onChange={(e) => setNewParentName(e.target.value)}
+                      placeholder="Dad"
+                      disabled={isCreatingAI}
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Kid's Age</label>
+                    <select
+                      value={aiKidAge}
+                      onChange={(e) => setAiKidAge(Number(e.target.value))}
+                      disabled={isCreatingAI}
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-200"
+                    >
+                      {[3,4,5,6,7,8,9,10].map(a => <option key={a} value={a}>Age {a}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-stone-600">Pages</label>
+                    <select
+                      value={aiPages}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (v > 3 && user?.subscriptionStatus !== 'premium') { setShowPremiumModal(true); return; }
+                        setAiPages(v);
+                      }}
+                      disabled={isCreatingAI}
+                      className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-800 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-200"
+                    >
+                      <option value={3}>3 Pages</option>
+                      <option value={5}>5 Pages ✨</option>
+                      <option value={8}>8 Pages ✨</option>
+                      <option value={12}>12 Pages ✨</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-600">Cover Theme</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { style: 'from-sky-100 to-indigo-100', name: 'Blue Sky' },
+                      { style: 'from-rose-100 to-amber-100', name: 'Sunset' },
+                      { style: 'from-teal-50 to-emerald-100', name: 'Ocean' },
+                      { style: 'from-violet-100 to-rose-100', name: 'Dream' }
+                    ].map((t) => (
+                      <button key={t.style} type="button" onClick={() => setNewTheme(t.style)}
+                        className={`h-11 rounded-xl bg-gradient-to-r ${t.style} border-2 transition cursor-pointer ${newTheme === t.style ? 'border-indigo-500 scale-105' : 'border-stone-100 hover:border-stone-200'}`}
+                        title={t.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCreatingAI}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold text-sm rounded-2xl shadow shadow-indigo-200 transition mt-2 transform active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isCreatingAI ? (
+                    <><Sparkles className="w-4 h-4 animate-spin" /> Generating story…</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" /> Generate with AI ✨</>
+                  )}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
