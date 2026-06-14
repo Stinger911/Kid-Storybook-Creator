@@ -53,7 +53,18 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
 
+  // Serialization: only one save runs at a time. If a new save arrives while
+  // one is in flight, we keep the latest book in pendingBookRef and start
+  // another save immediately after the current one finishes.
+  const isSavingRef = useRef(false);
+  const pendingBookRef = useRef<KidBook | null>(null);
+
   const executeSave = async (updatedBook: KidBook) => {
+    if (isSavingRef.current) {
+      pendingBookRef.current = updatedBook;
+      return;
+    }
+    isSavingRef.current = true;
     setIsSaving(true);
     setErrorMsg(null);
     try {
@@ -72,7 +83,14 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
       }
       setErrorMsg(msg);
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
+      // Drain the single-slot queue: save the latest version that arrived while we were busy.
+      if (pendingBookRef.current) {
+        const next = pendingBookRef.current;
+        pendingBookRef.current = null;
+        void executeSave(next);
+      }
     }
   };
 
@@ -358,10 +376,17 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
 
           <button
             onClick={handleManualSave}
-            className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-sm rounded-xl transition flex items-center gap-2 border border-stone-200 shadow-sm cursor-pointer"
+            disabled={isSaving}
+            className={`px-4 py-2 font-semibold text-sm rounded-xl transition flex items-center gap-2 border shadow-sm ${
+              isSaving
+                ? 'bg-stone-50 text-stone-400 border-stone-200 cursor-not-allowed'
+                : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-200 cursor-pointer'
+            }`}
           >
-            <Save className="w-4 h-4 text-stone-500" />
-            <span>Save Book</span>
+            {isSaving
+              ? <Loader2 className="w-4 h-4 animate-spin text-stone-400" />
+              : <Save className="w-4 h-4 text-stone-500" />}
+            <span>{isSaving ? 'Saving...' : 'Save Book'}</span>
           </button>
 
           <button
