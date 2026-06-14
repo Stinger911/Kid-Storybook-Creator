@@ -546,7 +546,7 @@ function WorkshopApp() {
                   <ShieldCheck className="w-6 h-6 text-purple-600" />
                   <h2 className="font-sans font-black text-xl text-stone-900 uppercase">StoryCraft Workspace Administrator</h2>
                 </div>
-                <p className="text-xs text-stone-400 mt-0.5 font-mono">System bootstrapped for: stinger911@gmail.com</p>
+                <p className="text-xs text-stone-400 mt-0.5 font-mono">System bootstrapped for: stinger911@gmail.com &nbsp;·&nbsp; v{__APP_VERSION__}</p>
               </div>
 
               {/* Stat Cards summary */}
@@ -1307,7 +1307,7 @@ function WorkshopApp() {
           >
             Lab18
           </button>
-          Storybook Co-author Factory © 2026. Made with Google Cloud Run & Enterprise Firestore.
+          Storybook Co-author Factory © 2026. Made with Google Cloud Run & Enterprise Firestore. &nbsp;v{__APP_VERSION__}
         </p>
       </footer>
     </div>

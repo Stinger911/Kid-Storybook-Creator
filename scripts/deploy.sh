@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "==> Bumping patch version"
+npm version patch --no-git-tag-version
+
+echo "==> Building (local validation)"
+npm run build
+
 PROJECT="lab18-net"
 SERVICE="${CLOUD_RUN_SERVICE:-storycraft}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"

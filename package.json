@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "deploy": "npm run build && bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
