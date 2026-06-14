@@ -62,7 +62,7 @@ app.get("/api/ai/status", (req, res) => {
 
 // 2. API: Generate personalized kids story with vocabulary for writing templates
 app.post("/api/generate-story", async (req, res) => {
-  const { theme, kidName, kidAge, pagesCount = 3 } = req.body;
+  const { theme, kidName, kidAge, pagesCount = 3, existingPages = [] } = req.body;
 
   if (!theme) {
     return res.status(400).json({ error: "Please provide a theme or outline for the kid's story." });
@@ -104,10 +104,14 @@ app.post("/api/generate-story", async (req, res) => {
   try {
     const kidDetails = kidName ? `The protagonist is named ${kidName} (an enthusiastic ${kidAge || 5}-year-old).` : "";
     
-    const prompt = `Write a delightful, gentle children's book story. 
-Theme/Prompt: "${theme}". 
-Number of pages requested: ${pagesCount}. 
-${kidDetails}
+    const existingContext = existingPages.length > 0
+      ? `\nThe story already has ${existingPages.length} page(s). Here is what has happened so far:\n${existingPages.map((p: { title?: string; storyText?: string }, i: number) => `Page ${i + 1} — ${p.title || ''}: ${p.storyText || ''}`).join('\n')}\n\nCONTINUE the story naturally from where it left off. Do NOT retell or summarize previous events.`
+      : '';
+
+    const prompt = `Write a delightful, gentle children's book story.
+Theme/Prompt: "${theme}".
+Number of NEW pages to add: ${pagesCount}.
+${kidDetails}${existingContext}
 Structure the story into sequential pages. Keep the language extremely child-friendly, engaging, and simple.
 For EACH page, provide:
 1. A unique, magical page header.

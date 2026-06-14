@@ -287,7 +287,11 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
           theme: aiPrompt,
           kidName: kidName,
           kidAge: kidAge,
-          pagesCount: pagesToGenerate
+          pagesCount: pagesToGenerate,
+          existingPages: currentBook.pages.map(p => ({
+            title: p.title,
+            storyText: p.storyText,
+          })),
         })
       });
 
