@@ -1,0 +1,13 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Book page images — only the owning authenticated user may write,
+    // anyone may read (needed for coloring-page display and print).
+    match /books/{bookId}/pages/{pageId}/{imageType} {
+      allow read: if true;
+      allow write: if request.auth != null
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

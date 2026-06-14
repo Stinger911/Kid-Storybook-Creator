@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { KidBook, BookPage, LayoutStyle } from '../types';
 import ColoringConverter from './ColoringConverter';
 import HandwritingCustomizer from './HandwritingCustomizer';
@@ -48,18 +48,49 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const triggerSave = async (updatedBook: KidBook) => {
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep a stable ref to onSave so the unmount flush uses the latest version.
+  const onSaveRef = useRef(onSave);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+
+  const executeSave = async (updatedBook: KidBook) => {
     setIsSaving(true);
+    setErrorMsg(null);
     try {
-      await onSave(updatedBook);
+      await onSaveRef.current(updatedBook);
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
-    } catch (e) {
-      console.error("Auto-save failed to replicate:", e);
+    } catch (e: any) {
+      console.error("Save failed:", e);
+      const raw = e?.message || String(e);
+      let msg = 'Save failed.';
+      try {
+        const parsed = JSON.parse(raw);
+        msg = parsed?.error || msg;
+      } catch {
+        msg = raw.slice(0, 120);
+      }
+      setErrorMsg(msg);
     } finally {
       setIsSaving(false);
     }
   };
+
+  // Auto-saves are debounced so rapid edits (typing, slider drags) batch into
+  // one upload. Manual save (button) fires immediately.
+  const triggerSave = (updatedBook: KidBook, immediate = false) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (immediate) {
+      void executeSave(updatedBook);
+    } else {
+      saveTimerRef.current = setTimeout(() => void executeSave(updatedBook), 1500);
+    }
+  };
+
+  // Cancel any pending debounced save on unmount.
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, []);
 
   // active page helper
   const activePage = currentBook.pages[activePageIndex] || null;
@@ -159,7 +190,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     };
     setCurrentBook(nextBook);
     setActivePageIndex(nextBook.pages.length - 1);
-    triggerSave(nextBook);
+    triggerSave(nextBook, true);
   };
 
   // Delete page
@@ -181,7 +212,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     
     setCurrentBook(nextBook);
     setActivePageIndex(Math.max(0, index - 1));
-    triggerSave(nextBook);
+    triggerSave(nextBook, true);
   };
 
   // Trigger browser raw physical sheet printer layout and print helper instructions modal
@@ -195,7 +226,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   };
 
   const handleManualSave = () => {
-    triggerSave(currentBook);
+    triggerSave(currentBook, true);
   };
 
   const generateAIBook = async (e: React.FormEvent) => {
@@ -260,7 +291,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
 
       setCurrentBook(newAIBook);
       setActivePageIndex(0);
-      triggerSave(newAIBook);
+      triggerSave(newAIBook, true);
       setAiPrompt('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Something went wrong generating your storybook. Let\'s try key fallback!');
@@ -310,7 +341,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                   moderationStatus: 'pending' as const
                 };
                 setCurrentBook(updated);
-                triggerSave(updated);
+                triggerSave(updated, true);
                 await toggleBookPublicity(currentBook.id, !currentlyPublic);
               }}
               className={`px-3.5 py-2 text-xs font-black rounded-xl border flex items-center gap-1.5 transition cursor-pointer shadow-xs ${

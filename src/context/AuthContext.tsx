@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
@@ -6,21 +6,21 @@ import {
   onAuthStateChanged, 
   User as FirebaseUser 
 } from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
-  onSnapshot, 
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  onSnapshot,
   getDocs,
   deleteDoc,
-  writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
 import { auth, db, OperationType, handleFirestoreError } from '../firebase';
+import { processPages } from '../utils/bookStorage';
 import { KidBook, BookPage } from '../types';
 
 // Extend profile configuration
@@ -85,6 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [adminBooks, setAdminBooks] = useState<KidBook[]>([]);
   const [loadingAdminData, setLoadingAdminData] = useState(false);
 
+  // Track book IDs already in Firestore to avoid a getDoc round-trip on every save.
+  const knownBookIds = useRef<Set<string>>(new Set());
+
   // Monitor auth status
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
@@ -97,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLibraryMode('local');
         setUserProfile(null);
         setCloudBooks([]);
+        knownBookIds.current.clear();
         setLoading(false);
       }
     });
@@ -115,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const books: KidBook[] = [];
       snapshot.forEach((docSnap) => {
+        knownBookIds.current.add(docSnap.id);
         const data = docSnap.data();
         books.push({
           id: docSnap.id,
@@ -324,35 +329,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Local Save fallback handled by standard state hooks inside library/App.tsx
       return;
     }
-    
+
+    // Upload any base64 images to Firebase Storage first.
+    // Firestore has a 1 MB document limit — storing raw data URLs will silently
+    // fail or truncate pages. Storage URLs are tiny by comparison.
+    const pages = await processPages(book.pages, book.id);
+
     const bookRef = doc(db, 'books', book.id);
     try {
-      const bookSnap = await getDoc(bookRef);
-      if (bookSnap.exists()) {
-        // Update keeping relational constraints
+      if (knownBookIds.current.has(book.id)) {
+        // Already exists in Firestore — skip getDoc, update directly.
         await updateDoc(bookRef, {
           title: book.title,
           author: book.author,
           themeColor: book.themeColor,
-          pages: book.pages,
+          pages,
           userEmail: firebaseUser.email || '',
           updatedAt: serverTimestamp()
         });
       } else {
-        // Create full cloud record
         await setDoc(bookRef, {
           id: book.id,
           userId: firebaseUser.uid,
           title: book.title,
           author: book.author,
           themeColor: book.themeColor,
-          pages: book.pages,
+          pages,
           userEmail: firebaseUser.email || '',
           isPublic: false,
           moderationStatus: 'pending',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
+        knownBookIds.current.add(book.id);
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `books/${book.id}`);

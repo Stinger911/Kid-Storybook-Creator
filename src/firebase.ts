@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -9,6 +10,7 @@ const app = initializeApp(firebaseConfig);
 // Initialize Services
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL */
 export const auth = getAuth();
+export const storage = getStorage(app);
 
 // Pre-test firestore connectivity on initial boot as mandated by security and integration skill rules
 import { doc, getDocFromServer } from 'firebase/firestore';
