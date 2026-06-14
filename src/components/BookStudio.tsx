@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 interface BookStudioProps {
   book: KidBook;
   onBack: () => void;
-  onSave: (updatedBook: KidBook) => void | Promise<void>;
+  onSave: (updatedBook: KidBook) => Promise<KidBook>;
 }
 
 export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
@@ -68,7 +68,26 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     setIsSaving(true);
     setErrorMsg(null);
     try {
-      await onSaveRef.current(updatedBook);
+      const savedBook = await onSaveRef.current(updatedBook);
+      // Replace data URLs with storage URLs in local state so subsequent saves
+      // skip the Storage upload entirely (data URL → storage URL migration).
+      if (savedBook?.pages) {
+        setCurrentBook(prev => {
+          const byId = new Map(savedBook.pages.map(p => [p.id, p]));
+          return {
+            ...prev,
+            pages: prev.pages.map(p => {
+              const sp = byId.get(p.id);
+              if (!sp) return p;
+              return {
+                ...p,
+                ...(sp.originalImage && !sp.originalImage.startsWith('data:') ? { originalImage: sp.originalImage } : {}),
+                ...(sp.coloringImage && !sp.coloringImage.startsWith('data:') ? { coloringImage: sp.coloringImage } : {}),
+              };
+            }),
+          };
+        });
+      }
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
     } catch (e: any) {
@@ -101,7 +120,7 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     if (immediate) {
       void executeSave(updatedBook);
     } else {
-      saveTimerRef.current = setTimeout(() => void executeSave(updatedBook), 1500);
+      saveTimerRef.current = setTimeout(() => void executeSave(updatedBook), 800);
     }
   };
 

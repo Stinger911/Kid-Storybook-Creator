@@ -148,10 +148,11 @@ function WorkshopApp() {
     setSelectedBook(null);
   };
 
-  // Syncing book saves to active Local OR cloud db
-  const handleSaveBook = async (updatedBook: KidBook) => {
+  // Syncing book saves to active Local OR cloud db. Returns the saved book so
+  // BookStudio can replace data URLs with storage URLs in its local state.
+  const handleSaveBook = async (updatedBook: KidBook): Promise<KidBook> => {
     if (libraryMode === 'cloud') {
-      await saveBookToStore(updatedBook);
+      return saveBookToStore(updatedBook);
     } else {
       // Save local anonymous guest mode
       const saved = localStorage.getItem('kid-book-factory-saved-books');
@@ -169,6 +170,7 @@ function WorkshopApp() {
           console.error("Local storage sync error:", e);
         }
       }
+      return updatedBook;
     }
   };
 

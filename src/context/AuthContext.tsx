@@ -20,7 +20,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { auth, db, OperationType, handleFirestoreError } from '../firebase';
-import { processPages } from '../utils/bookStorage';
+import { processPages, isDataUrl } from '../utils/bookStorage';
 import { KidBook, BookPage } from '../types';
 
 // Extend profile configuration
@@ -55,7 +55,7 @@ interface AuthContextType {
   // Book cloud operations
   cloudBooks: KidBook[];
   publicBooks: KidBook[];
-  saveBookToStore: (book: KidBook) => Promise<void>;
+  saveBookToStore: (book: KidBook) => Promise<KidBook>;
   deleteBookFromStore: (bookId: string) => Promise<void>;
   toggleBookPublicity: (bookId: string, isPublic: boolean) => Promise<void>;
   
@@ -324,16 +324,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Cloud Firestore Book management operations
-  const saveBookToStore = async (book: KidBook) => {
-    if (!firebaseUser) {
-      // Local Save fallback handled by standard state hooks inside library/App.tsx
-      return;
-    }
+  const saveBookToStore = async (book: KidBook): Promise<KidBook> => {
+    if (!firebaseUser) return book;
 
-    // Upload any base64 images to Firebase Storage first.
-    // Firestore has a 1 MB document limit — storing raw data URLs will silently
-    // fail or truncate pages. Storage URLs are tiny by comparison.
-    const pages = await processPages(book.pages, book.id);
+    // Only run Storage upload pass when at least one page actually has a data
+    // URL — avoids the async hop entirely for text-only saves.
+    const needsUpload = book.pages.some(
+      p => isDataUrl(p.originalImage) || isDataUrl(p.coloringImage)
+    );
+    const pages = needsUpload ? await processPages(book.pages, book.id) : book.pages;
 
     const bookRef = doc(db, 'books', book.id);
     try {
@@ -366,6 +365,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `books/${book.id}`);
     }
+    // Return the book with storage URLs so the caller can update its local state,
+    // preventing data-URL re-uploads on subsequent saves.
+    return { ...book, pages };
   };
 
   const deleteBookFromStore = async (bookId: string) => {
