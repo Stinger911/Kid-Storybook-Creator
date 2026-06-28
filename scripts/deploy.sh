@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load local env (live Stripe Buy Button values, etc.) so they can be passed
+# into the Docker build, which excludes .env from its context.
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 echo "==> Bumping patch version"
 npm version patch --no-git-tag-version
 
@@ -13,7 +22,10 @@ REGION="${CLOUD_RUN_REGION:-us-central1}"
 IMAGE="gcr.io/${PROJECT}/${SERVICE}"
 
 echo "==> Building Docker image: ${IMAGE}"
-docker build --platform linux/amd64 -t "${IMAGE}" .
+docker build --platform linux/amd64 \
+  --build-arg STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY:-}" \
+  --build-arg STRIPE_BUY_BUTTON_ID="${STRIPE_BUY_BUTTON_ID:-}" \
+  -t "${IMAGE}" .
 
 echo "==> Pushing to GCR"
 docker push "${IMAGE}"
