@@ -11,12 +11,10 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Default to jsdom; node-only suites opt out via a `// @vitest-environment node`
+    // docblock (tests/api/**, src/utils/**). environmentMatchGlobs was removed in Vitest 4.
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
-    environmentMatchGlobs: [
-      ['tests/api/**', 'node'],
-      ['src/utils/**', 'node'],
-    ],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { BookPage } from '../types';
 

@@ -1069,6 +1069,19 @@ function WorkshopApp() {
                             </>
                           )}
                         </button>
+
+                        <div className="flex items-center gap-2 text-[10px] text-stone-400 font-semibold">
+                          <div className="flex-1 h-px bg-stone-200" />
+                          or pay directly
+                          <div className="flex-1 h-px bg-stone-200" />
+                        </div>
+
+                        <div className="flex justify-center">
+                          <stripe-buy-button
+                            buy-button-id={__STRIPE_BUY_BUTTON_ID__}
+                            publishable-key={__STRIPE_PUBLISHABLE_KEY__}
+                          />
+                        </div>
                       </div>
                     ) : (
                       /* SANDBOX VIEW */
