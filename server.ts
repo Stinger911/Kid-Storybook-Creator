@@ -60,6 +60,46 @@ app.get("/api/ai/status", (req, res) => {
   res.json({ available: isAvailable });
 });
 
+// 1b. API: Same-origin image proxy.
+// Coloring plates live in Firebase Storage (cross-origin). Client-side PDF export
+// (html2canvas) taints on cross-origin images, producing blank pictures. Proxying
+// them through our own origin makes them same-origin so they rasterise correctly.
+// Restricted to known Google Storage hosts to avoid being an open SSRF relay.
+const ALLOWED_IMAGE_HOSTS = new Set([
+  "firebasestorage.googleapis.com",
+  "storage.googleapis.com",
+  "lh3.googleusercontent.com",
+]);
+app.get("/api/proxy-image", async (req, res) => {
+  const raw = typeof req.query.url === "string" ? req.query.url : "";
+  let target: URL;
+  try {
+    target = new URL(raw);
+  } catch {
+    return res.status(400).json({ error: "Invalid url" });
+  }
+  if (target.protocol !== "https:" || !ALLOWED_IMAGE_HOSTS.has(target.hostname)) {
+    return res.status(403).json({ error: "Host not allowed" });
+  }
+  try {
+    const upstream = await fetch(target.toString());
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: "Upstream fetch failed" });
+    }
+    const contentType = upstream.headers.get("content-type") || "image/png";
+    if (!contentType.startsWith("image/")) {
+      return res.status(415).json({ error: "Not an image" });
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.send(buf);
+  } catch (e) {
+    console.error("proxy-image error", e);
+    return res.status(502).json({ error: "Proxy failed" });
+  }
+});
+
 // 2. API: Generate personalized kids story with vocabulary for writing templates
 app.post("/api/generate-story", async (req, res) => {
   const { theme, kidName, kidAge, pagesCount = 3, existingPages = [] } = req.body;

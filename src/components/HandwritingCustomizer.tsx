@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Sparkles, Trash2, RotateCcw, Download, Printer, Smile, ArrowRight, BookOpen } from 'lucide-react';
+import TracingSheet from './TracingSheet';
 
 interface HandwritingCustomizerProps {
   initialText?: string;
@@ -7,7 +8,12 @@ interface HandwritingCustomizerProps {
   readOnly?: boolean;
   hideStartDots?: boolean;
   onHideStartDotsChange?: (hide: boolean) => void;
+  letterSpacing?: number;
+  onLetterSpacingChange?: (spacing: number) => void;
 }
+
+// Default inter-letter gap (px) used when a page has no explicit letterSpacing yet.
+const DEFAULT_LETTER_SPACING = 8;
 
 export default function HandwritingCustomizer({
   initialText = 'Hello World',
@@ -15,12 +21,17 @@ export default function HandwritingCustomizer({
   readOnly = false,
   hideStartDots = false,
   onHideStartDotsChange,
+  letterSpacing,
+  onLetterSpacingChange,
 }: HandwritingCustomizerProps) {
   const [text, setText] = useState(initialText);
   const [lineType, setLineType] = useState<'standard' | 'cursive' | 'wide'>('standard');
   const [color, setColor] = useState('#4f46e5'); // default purple-blue trace crayon
   const [brushSize, setBrushSize] = useState(6);
   const [localHideStartDots, setLocalHideStartDots] = useState(hideStartDots);
+  const [localSpacing, setLocalSpacing] = useState(
+    typeof letterSpacing === 'number' ? letterSpacing : DEFAULT_LETTER_SPACING
+  );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -33,6 +44,15 @@ export default function HandwritingCustomizer({
     setLocalHideStartDots(hideStartDots);
   }, [hideStartDots]);
 
+  useEffect(() => {
+    if (typeof letterSpacing === 'number') setLocalSpacing(letterSpacing);
+  }, [letterSpacing]);
+
+  const handleSpacingChange = (val: number) => {
+    setLocalSpacing(val);
+    if (onLetterSpacingChange) onLetterSpacingChange(val);
+  };
+
   const toggleDots = () => {
     const newVal = !localHideStartDots;
     setLocalHideStartDots(newVal);
@@ -41,7 +61,7 @@ export default function HandwritingCustomizer({
     }
   };
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
     if (onTextChange) {
@@ -57,13 +77,14 @@ export default function HandwritingCustomizer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Reset size to match parent layout bounding box
+    // Reset size to match parent layout bounding box (grows with multiline traces)
     const resizeCanvas = () => {
       const rect = canvas.parentElement?.getBoundingClientRect();
+      const h = Math.max(rect?.height || 200, 200);
       canvas.width = (rect?.width || 800) * 2;
-      canvas.height = 200 * 2; // Fixed logical height
+      canvas.height = h * 2;
       canvas.style.width = '100%';
-      canvas.style.height = '200px';
+      canvas.style.height = `${h}px`;
       ctx.scale(2, 2);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -75,7 +96,7 @@ export default function HandwritingCustomizer({
     return () => {
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [text, lineType]);
+  }, [text, lineType, localSpacing]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -144,19 +165,6 @@ export default function HandwritingCustomizer({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
-  // Convert character into handwriting guidelines parameters
-  const renderBackgroundLines = () => {
-    return (
-      <svg className="absolute inset-0 w-full h-[200px] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-        {/* Lined paper guides */}
-        <line x1="0%" y1="40" x2="100%" y2="40" stroke="#93c5fd" strokeWidth="1.5" /> {/* Top Boundary */}
-        <line x1="0%" y1="100" x2="100%" y2="100" stroke="#fca5a5" strokeWidth="1.5" strokeDasharray="6 4" /> {/* Mid-dashed line */}
-        <line x1="0%" y1="160" x2="100%" y2="160" stroke="#93c5fd" strokeWidth="1.5" /> {/* Base line */}
-        <line x1="0%" y1="195" x2="100%" y2="195" stroke="#e2e8f0" strokeWidth="1" /> {/* Bottom gap boundary */}
-      </svg>
-    );
-  };
-
   return (
     <div className="w-full bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col gap-4 relative overflow-hidden" id="handwriting-customizer">
       {/* Decorative elementary note binder margin */}
@@ -172,15 +180,15 @@ export default function HandwritingCustomizer({
         </div>
 
         {!readOnly && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-stone-500">Practice word:</label>
-            <input
-              type="text"
+          <div className="flex items-start gap-2">
+            <label className="text-xs font-medium text-stone-500 mt-1.5">Practice text:</label>
+            <textarea
               value={text}
               onChange={handleTextChange}
-              placeholder="e.g. Cat"
-              maxLength={24}
-              className="px-3 py-1 text-sm rounded-lg border border-stone-300 focus:ring-4 focus:ring-amber-200 focus:outline-none bg-white text-stone-800 font-semibold"
+              placeholder={"e.g. Cat\n(Enter = new line)"}
+              maxLength={120}
+              rows={2}
+              className="px-3 py-1 text-sm rounded-lg border border-stone-300 focus:ring-4 focus:ring-amber-200 focus:outline-none bg-white text-stone-800 font-semibold resize-y w-40 leading-snug"
             />
           </div>
         )}
@@ -213,78 +221,18 @@ export default function HandwritingCustomizer({
         </div>
       </div>
 
-      {/* Tracing Area Wrapper */}
-      <div className="relative w-full h-[200px] border border-dashed border-stone-300 rounded-xl bg-white select-none shadow-inner overflow-hidden pl-6">
-        {/* Handwriting Lined Worksheet Guides */}
-        {renderBackgroundLines()}
-
-        {/* Outer text preview / SVG letters outline */}
-        <div className="absolute inset-x-6 top-0 bottom-0 flex items-center justify-center pointer-events-none z-10 select-none">
-          <div className="w-full flex justify-center items-baseline gap-2 overflow-hidden px-4">
-            {text.split('').map((char, index) => {
-              if (char === ' ') {
-                return <span key={index} className="w-8 inline-block" />;
-              }
-              return (
-                <div key={index} className="relative flex flex-col items-center">
-                  {/* Tracing SVG character */}
-                  <svg
-                    viewBox="0 0 100 120"
-                    className="w-16 h-28 select-none"
-                    style={{ overflow: 'visible' }}
-                  >
-                    {/* Outline / Guideline behind */}
-                    <text
-                      x="50%"
-                      y="94"
-                      textAnchor="middle"
-                      className={`school-tracing-font font-handwriting text-[94px] select-none ${
-                        lineType === 'cursive'
-                          ? 'fill-stone-50 stroke-stone-300 stroke-2'
-                          : 'fill-none stroke-stone-200 stroke-[1.5] stroke-dasharray'
-                      }`}
-                      style={{
-                        fontFamily: '"Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive',
-                        fontStyle: 'italic',
-                        fontWeight: 300,
-                        strokeDasharray: lineType === 'standard' ? '6,3' : 'none',
-                      }}
-                    >
-                      {char}
-                    </text>
-
-                    {/* Dotted target lines inside letter if cursive */}
-                    {lineType === 'cursive' && (
-                      <text
-                        x="50%"
-                        y="94"
-                        textAnchor="middle"
-                        className="school-tracing-font font-handwriting text-[94px] select-none fill-none stroke-amber-400/60 stroke-[1] stroke-dasharray"
-                        style={{
-                          fontFamily: '"Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive',
-                          fontStyle: 'italic',
-                          fontWeight: 300,
-                          strokeDasharray: '2,2',
-                        }}
-                      >
-                        {char}
-                      </text>
-                    )}
-
-                    {/* Helper Tracing Dots for Start / Direction */}
-                    {!localHideStartDots && (
-                      <>
-                        <circle cx="50%" cy="16" r="3.5" fill="#f43f5e" className="animate-pulse" />
-                        <text x="50%" y="10" textAnchor="middle" className="text-[9px] fill-rose-500 font-bold font-sans">
-                          start
-                        </text>
-                      </>
-                    )}
-                  </svg>
-                </div>
-              );
-            })}
-          </div>
+      {/* Tracing Area Wrapper (grows with the number of text lines) */}
+      <div className="relative w-full min-h-[200px] border border-dashed border-stone-300 rounded-xl bg-white select-none shadow-inner overflow-hidden pl-6">
+        {/* Multiline lined tracing template */}
+        <div className="absolute inset-x-6 inset-y-3 flex items-center justify-center pointer-events-none z-10 select-none">
+          <TracingSheet
+            variant="editor"
+            text={text}
+            hideStartDots={localHideStartDots}
+            letterSpacing={localSpacing}
+            cursive={lineType === 'cursive'}
+            fallbackText="Hello"
+          />
         </div>
 
         {/* Drawing layer canvas */}
@@ -340,6 +288,21 @@ export default function HandwritingCustomizer({
               onChange={(e) => setBrushSize(Number(e.target.value))}
               className="w-20 accent-amber-500 h-1.5 bg-stone-200 rounded-lg cursor-pointer"
             />
+          </div>
+
+          <div className="h-4 w-[1px] bg-stone-300" />
+
+          <div className="flex items-center gap-1" title="Space between letters">
+            <span className="text-xs font-semibold text-stone-500">Letter spacing:</span>
+            <input
+              type="range"
+              min="0"
+              max="40"
+              value={localSpacing}
+              onChange={(e) => handleSpacingChange(Number(e.target.value))}
+              className="w-20 accent-amber-500 h-1.5 bg-stone-200 rounded-lg cursor-pointer"
+            />
+            <span className="text-[10px] font-mono text-stone-400 w-7 text-right">{localSpacing}px</span>
           </div>
 
           <div className="h-4 w-[1px] bg-stone-300" />

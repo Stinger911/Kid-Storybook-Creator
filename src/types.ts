@@ -22,8 +22,9 @@ export interface BookPage {
     invert: boolean;
     noProcess?: boolean;
   };
-  tracingText?: string; // Text to trace
+  tracingText?: string; // Text to trace (newlines split into separate tracing rows)
   hideStartDots?: boolean; // Turn off the pink start dots
+  letterSpacing?: number; // Inter-letter gap (px) for tracing rows; undefined = variant default
   pageNumber: number;
 }
 

@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { KidBook, BookPage, LayoutStyle } from '../types';
 import ColoringConverter from './ColoringConverter';
 import HandwritingCustomizer from './HandwritingCustomizer';
+import TracingSheet from './TracingSheet';
 import { getVectorOutlineFallback, generateId } from '../utils/generators';
+import { exportBookToPdf } from '../utils/pdfExport';
 import { 
   Book, ArrowLeft, Plus, ChevronRight, PenTool, Sparkles, 
   Trash2, FileText, Printer, Save, CheckCircle, HelpCircle, User, Loader2,
@@ -21,6 +23,8 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
   const [currentBook, setCurrentBook] = useState<KidBook>(book);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
   
   // State for AI generation
   const [aiPrompt, setAiPrompt] = useState('');
@@ -266,6 +270,24 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
     triggerSave(currentBook, true);
   };
 
+  // Download the whole book as an A4 PDF — a premium subscription feature.
+  const handleDownloadPdf = async () => {
+    if (user?.subscriptionStatus !== 'premium') {
+      setShowPremiumModal(true);
+      return;
+    }
+    if (!printRef.current || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      await exportBookToPdf(printRef.current, currentBook.title || 'storycraft');
+    } catch (e) {
+      console.error('PDF export failed', e);
+      setErrorMsg('Could not generate the PDF. Please try again.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const generateAIBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
@@ -409,6 +431,23 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
               ? <Loader2 className="w-4 h-4 animate-spin text-stone-400" />
               : <Save className="w-4 h-4 text-stone-500" />}
             <span>{isSaving ? 'Saving...' : 'Save Book'}</span>
+          </button>
+
+          <button
+            onClick={handleDownloadPdf}
+            disabled={exportingPdf}
+            title={user?.subscriptionStatus === 'premium' ? 'Download this book as a PDF' : 'Premium feature — unlock PDF export'}
+            className={`px-5 py-2 font-bold text-sm rounded-xl transition flex items-center gap-2 shadow-sm transform active:scale-95 ${
+              exportingPdf
+                ? 'bg-stone-100 text-stone-400 border border-stone-200 cursor-wait'
+                : 'bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 cursor-pointer'
+            }`}
+          >
+            {exportingPdf
+              ? <Loader2 className="w-4 h-4 animate-spin text-stone-400" />
+              : <FileText className="w-4 h-4 text-amber-500" />}
+            <span>{exportingPdf ? 'Building PDF...' : 'Download PDF'}</span>
+            {user?.subscriptionStatus !== 'premium' && <span aria-hidden>🔒</span>}
           </button>
 
           <button
@@ -754,47 +793,14 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                           <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-normal font-bold">Trace word: {activePage.tracingText || 'KID'}</span>
                         </div>
                         
-                        {/* Realistic handwriting background guides lines */}
-                        <div className="w-full border border-dotted border-stone-350 rounded-xl bg-white p-3.5 relative h-[100px] pl-6 select-none overflow-hidden shadow-2xs">
-                          {/* standard ruled lines sizing */}
-                          <svg className="absolute inset-0 w-full h-[100px] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-                            <line x1="0%" y1="18" x2="100%" y2="18" stroke="#93c5fd" strokeWidth="1" />
-                            <line x1="0%" y1="50" x2="100%" y2="50" stroke="#fca5a5" strokeWidth="1" strokeDasharray="5 3" />
-                            <line x1="0%" y1="82" x2="100%" y2="82" stroke="#93c5fd" strokeWidth="1" />
-                          </svg>
-
-                          {/* Dashed guidelines letter template layer */}
-                          <div className="absolute inset-y-0 inset-x-6 flex items-center justify-center">
-                            <div className="w-full flex justify-center items-baseline gap-2 overflow-hidden px-2">
-                              {(activePage.tracingText || 'KID').split('').map((char, index) => {
-                                if (char === ' ') return <span key={index} className="w-3" />;
-                                return (
-                                  <div key={index} className="relative flex flex-col items-center">
-                                    <svg viewBox="0 0 100 120" className="w-10 h-16 pointer-events-none overflow-visible">
-                                      <text
-                                        x="50%"
-                                        y="94"
-                                        textAnchor="middle"
-                                        className="school-tracing-font font-handwriting text-[92px] fill-none stroke-stone-300 stroke-[1.5]"
-                                        style={{
-                                          fontFamily: '"Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive',
-                                          fontStyle: 'italic',
-                                          fontWeight: 400,
-                                          strokeDasharray: '6,3'
-                                        }}
-                                      >
-                                        {char}
-                                      </text>
-                                      {/* helper point dot */}
-                                      {!activePage.hideStartDots && (
-                                        <circle cx="50%" cy="16" r="3" fill="#ef4444" opacity="0.8" />
-                                      )}
-                                    </svg>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+                        {/* Multiline lined tracing template (one ruled row per text line) */}
+                        <div className="w-full border border-dotted border-stone-350 rounded-xl bg-white p-3.5 relative min-h-[100px] pl-6 select-none overflow-hidden shadow-2xs flex items-center">
+                          <TracingSheet
+                            variant="preview"
+                            text={activePage.tracingText}
+                            hideStartDots={activePage.hideStartDots}
+                            letterSpacing={activePage.letterSpacing}
+                          />
                         </div>
                       </div>
                     )}
@@ -847,6 +853,8 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                       onTextChange={(val) => handleUpdatePage({ tracingText: val })}
                       hideStartDots={!!activePage.hideStartDots}
                       onHideStartDotsChange={(val) => handleUpdatePage({ hideStartDots: val })}
+                      letterSpacing={activePage.letterSpacing}
+                      onLetterSpacingChange={(val) => handleUpdatePage({ letterSpacing: val })}
                     />
                   </div>
                 )}
@@ -865,16 +873,17 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
         </div>
       </div>
 
-       {/* PRINT-ONLY STORYBOOK LAYOUT GRID (EXCLUSIVELY visible during print trigger window, hidden in viewport) */}
-      <div className="hidden print:block w-full">
+       {/* PRINT-ONLY STORYBOOK LAYOUT GRID (visible during print trigger window + captured for PDF export, hidden in viewport) */}
+      <div ref={printRef} className="hidden print:block w-full">
         {currentBook.pages.map((p, idx) => {
           const isDouble = p.layout === 'coloring-top-writing-bottom';
           const isColoringOnly = p.layout === 'coloring-only';
           const isWritingOnly = p.layout === 'writing-only';
 
           return (
-            <div 
-              key={p.id} 
+            <div
+              key={p.id}
+              data-pdf-page
               className="w-full p-6 flex flex-col justify-between page-break-after-always bg-white print:p-4 print:gap-2.5 print:h-[232mm] print:min-h-[232mm] print:max-h-[232mm] print:overflow-hidden print:box-border print:border-none"
               style={{ boxSizing: 'border-box' }}
             >
@@ -934,56 +943,19 @@ export default function BookStudio({ book, onBack, onSave }: BookStudioProps) {
                     <span className="font-mono text-stone-400">Word: {p.tracingText || 'KID'}</span>
                   </span>
                   
-                  {/* SVG Tracing template block suited for real print pencils */}
-                  <div className={`w-full border-2 border-dotted border-stone-300 rounded-2xl bg-white p-4 relative pl-8 print:p-1.5 sm:print:p-2 ${
-                    isDouble ? 'h-[105px] print:h-[80px]' : 'h-[170px] print:h-[150px]'
+                  {/* Multiline printable tracing template (one ruled row per text line) */}
+                  <div className={`w-full border-2 border-dotted border-stone-300 rounded-2xl bg-white p-4 relative pl-8 print:p-1.5 sm:print:p-2 flex items-center ${
+                    isDouble ? 'min-h-[105px] print:min-h-[80px]' : 'min-h-[170px] print:min-h-[150px]'
                   }`}>
                     {/* binder left border */}
                     <div className="absolute left-3 top-0 bottom-0 w-[1.5px] bg-red-200" />
-                    
-                    {/* Worksheets ruled lines of standard sizing */}
-                    <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-                      <line x1="0%" y1={isDouble ? "16" : "26"} x2="100%" y2={isDouble ? "16" : "26"} stroke="#93c5fd" strokeWidth="1.2" />
-                      <line x1="0%" y1={isDouble ? "46" : "78"} x2="100%" y2={isDouble ? "46" : "78"} stroke="#fca5a5" strokeWidth="1.2" strokeDasharray="5 3" />
-                      <line x1="0%" y1={isDouble ? "76" : "130"} x2="100%" y2={isDouble ? "76" : "130"} stroke="#93c5fd" strokeWidth="1.2" />
-                    </svg>
 
-                    {/* Big printable dashed characters */}
-                    <div className="absolute inset-y-0 inset-x-8 flex items-center justify-center">
-                      <div className="w-full flex justify-center items-baseline gap-1.5 overflow-hidden px-2">
-                        {(p.tracingText || 'KID').split('').map((char, index) => {
-                          if (char === ' ') {
-                            return <span key={index} className={isDouble ? "w-3" : "w-6"} />;
-                          }
-                          return (
-                            <div key={index} className="relative flex flex-col items-center">
-                              <svg viewBox="0 0 100 120" className={`overflow-visible pointer-events-none ${
-                                isDouble ? 'w-10 h-14 print:w-7.5 print:h-11' : 'w-14 h-24'
-                              }`}>
-                                <text
-                                  x="50%"
-                                  y="94"
-                                  textAnchor="middle"
-                                  fontSize="92"
-                                  className="school-tracing-font font-handwriting fill-none stroke-neutral-300 stroke-[1.5]"
-                                  style={{
-                                    fontFamily: '"Playwrite GB J", "Schoolbell", "Short Stack", "Playpen Sans", cursive',
-                                    fontStyle: 'italic',
-                                    fontWeight: 400,
-                                    strokeDasharray: '6,3'
-                                  }}
-                                >
-                                  {char}
-                                </text>
-                                {!p.hideStartDots && (
-                                  <circle cx="50%" cy="16" r="3.5" fill="#f43f5e" />
-                                )}
-                              </svg>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <TracingSheet
+                      variant={isDouble ? 'print-double' : 'print-single'}
+                      text={p.tracingText}
+                      hideStartDots={p.hideStartDots}
+                      letterSpacing={p.letterSpacing}
+                    />
                   </div>
                 </div>
               )}
